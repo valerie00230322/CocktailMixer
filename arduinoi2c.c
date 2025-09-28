@@ -15,13 +15,20 @@
 //        Hardware-Setup
 // ==============================
 #define SERIAL_PORT     Serial1    // Mega: RX1=19, TX1=18
+#define SERIAL_PORT_2   Serial2    //Mega: ?
 #define R_SENSE         0.11f
 #define I2C_ADDR        0x12
 
-// UART-Adressen pro Treiber (über MS1/MS2 gesetzt)
+// UART-Adressen pro Treiber Lift
 #define ADDR_M1         0b00
 #define ADDR_M2         0b01
 #define ADDR_M3         0b10
+
+// UART-Adressen pro Treiber Förderband
+#define ADDR_Ebene1         0b00
+#define ADDR_Ebene2         0b01
+#define ADDR_Ebene3         0b10
+
 
 // Gemeinsamer Enable (LOW = aktiv)
 #define EN_PIN          2
@@ -33,32 +40,45 @@
 #define DIR_PIN_M2      6
 #define STEP_PIN_M3     7
 #define DIR_PIN_M3      8
+#define STEP_PIN_Ebene1 10    
+#define DIR_PIN_Ebene1  11  
+#define STEP_PIN_Ebene2 12  
+#define DIR_PIN_Ebene2   13  
+#define STEP_PIN_Ebene3   14 
+#define DIR_PIN_Ebene3     15
 
-// Endschalter (unten, aktiv LOW -> gegen GND schalten)
+// Sensoren
 #define HOME_PIN        9
-
+#define Endschalter_Ebene1 16
+#define Endschalter_Ebene2  17
+#define Endschalter_Ebene3  18
 // ==============================
 //        Objekte
 // ==============================
 TMC2209Stepper driver1(&SERIAL_PORT, R_SENSE, ADDR_M1);
 TMC2209Stepper driver2(&SERIAL_PORT, R_SENSE, ADDR_M2);
 TMC2209Stepper driver3(&SERIAL_PORT, R_SENSE, ADDR_M3);
+TMC2209Stepper driver_Ebene1(&SERIAL_PORT_2, R_SENSE, ADDR_Ebene1);
+TMC2209Stepper driver_Ebene2(&SERIAL_PORT_2, R_SENSE, ADDR_Ebene2);
+TMC2209Stepper driver_Ebene3(&SERIAL_PORT_2, R_SENSE, ADDR_Ebene3);
 
 AccelStepper stepper1(AccelStepper::DRIVER, STEP_PIN_M1, DIR_PIN_M1);
 AccelStepper stepper2(AccelStepper::DRIVER, STEP_PIN_M2, DIR_PIN_M2);
 AccelStepper stepper3(AccelStepper::DRIVER, STEP_PIN_M3, DIR_PIN_M3);
-
-TMC2209Stepper* drivers[3] = { &driver1, &driver2, &driver3 };
-AccelStepper* steppers[3] = { &stepper1, &stepper2, &stepper3 };
+AccelStepper stepper_Ebene1(AccelStepper::DRIVER, STEP_PIN_Ebene1, DIR_PIN_Ebene1);
+AccelStepper stepper_Ebene2(AccelStepper::DRIVER, STEP_PIN_Ebene2, DIR_PIN_Ebene2);
+AccelStepper stepper_Ebene3(AccelStepper::DRIVER, STEP_PIN_Ebene3, DIR_PIN_Ebene3);
+TMC2209Stepper* drivers[6] = { &driver1, &driver2, &driver3, &driver_Ebene1, &driver_Ebene2, &driver_Ebene3};
+AccelStepper* steppers[6] = { &stepper1, &stepper2, &stepper3, &stepper_Ebene1, &stepper_Ebene2, &stepper_Ebene3};
 
 // ==============================
 //        Motor Parameter
 // ==============================
-long  step_chunk[3]     = { 5000, 5000, 5000 };  // aktuell ungenutzt
-float max_speed_sps[3]  = { 1000, 600, 600 };
-float accel_sps2[3]     = { 300, 300, 300 };
-int   steps[3]          = { 16, 16, 16 };        // Microsteps, ohne Prüfung
-int   current[3]        = { 1500, 1500, 1500 };  // mA RMS
+long  step_chunk[6]     = { 5000, 5000, 5000, 5000, 5000, 5000 };  // aktuell ungenutzt
+float max_speed_sps[6]  = { 1000, 600, 600,1000, 600, 600 };
+float accel_sps2[6]     = { 300, 300, 300,300, 300, 300 };
+int   steps[6]          = { 16, 16, 16,16, 16, 16 };        // Microsteps, ohne Prüfung
+int   current[6]        = { 1500, 1500, 1500,1500, 1500, 1500 };  // mA RMS
 
 // ==============================
 //   I2C-Empfangsvariablen (volatile für ISR)
@@ -92,9 +112,20 @@ static inline long heightToSteps(uint16_t h) {
 // ==============================
 //   Ebenen-Funktionen
 // ==============================
-void ebene1(uint16_t h, uint8_t r, uint8_t rdist) { stepper1.moveTo(heightToSteps(h)); }
-void ebene2(uint16_t h, uint8_t r, uint8_t rdist) { stepper1.moveTo(heightToSteps(h)); }
-void ebene3(uint16_t h, uint8_t r, uint8_t rdist) { stepper1.moveTo(heightToSteps(h)); }
+void ebene1(uint16_t h, uint8_t r, uint8_t rdist) {
+  
+ stepper1.moveTo(heightToSteps(h));
+ 
+  }
+
+void ebene2(uint16_t h, uint8_t r, uint8_t rdist) {
+   stepper1.moveTo(heightToSteps(h)); 
+   
+   }
+
+void ebene3(uint16_t h, uint8_t r, uint8_t rdist) { 
+  stepper1.moveTo(heightToSteps(h)); 
+}
 
 // ==============================
 //   Statusabfrage Funktion
@@ -200,17 +231,27 @@ void setup() {
   Serial.println(F("\nStart 3x TMC2209 via UART + AccelStepper..."));
 
   SERIAL_PORT.begin(57600);
+  SERIAL_PORT_2.begin(57600);
+
 
   pinMode(EN_PIN, OUTPUT);
   digitalWrite(EN_PIN, LOW);    // alle aktiv
+  pinMode(Endschalter_Ebene1, INPUT);
+  pinMode(Endschalter_Ebene2, INPUT);
+  pinMode(Endschalter_Ebene3, INPUT);
 
   driverCommonInit(driver1, steps[0], current[0]);
   driverCommonInit(driver2, steps[1], current[1]);
   driverCommonInit(driver3, steps[2], current[2]);
-
+  driverCommonInit(driver_Ebene1, steps[3], current[3]);
+  driverCommonInit(driver_Ebene2, steps[4], current[4]);
+  driverCommonInit(driver_Ebene3, steps[5], current[5]);
   stepperCommonInit(stepper1, max_speed_sps[0], accel_sps2[0]);
   stepperCommonInit(stepper2, max_speed_sps[1], accel_sps2[1]);
   stepperCommonInit(stepper3, max_speed_sps[2], accel_sps2[2]);
+  stepperCommonInit(stepper_Ebene1, max_speed_sps[3], accel_sps2[3]);
+  stepperCommonInit(stepper_Ebene2, max_speed_sps[4], accel_sps2[4]);
+  stepperCommonInit(stepper_Ebene3, max_speed_sps[5], accel_sps2[5]);
 
   Serial.print(F("test_connection M1: ")); Serial.println(driver1.test_connection());
   Serial.print(F("test_connection M2: ")); Serial.println(driver2.test_connection());
@@ -218,7 +259,7 @@ void setup() {
 }
 
 // ==============================
-//   I2C-ISR (Receive) - KORRIGIERT
+//   I2C-ISR (Receive) - K
 //   Erwartet 5 Bytes: Aufgabe, H_LSB, H_MSB, Richtung, Distanz
 // ==============================
 void onI2CReceive(int count) {
@@ -252,7 +293,9 @@ void loop() {
   stepper1.run();
   stepper2.run();
   stepper3.run();
-
+  stepper_Ebene1.run();
+  stepper_Ebene2.run();
+  stepper_Ebene3.run();
   // Neue I2C-Daten vorhanden?
   if (cmd_pending) {
     // 1. Daten sicher aus der ISR-Zone laden
