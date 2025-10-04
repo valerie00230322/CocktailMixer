@@ -12,7 +12,7 @@ class CocktailApp(MDApp):
         self.theme_cls.accent_palette = "Cyan"
 
         # Lade KV-Dateien
-        Builder.load_file("view/screens.kv")
+        Builder.load_file("View/screens.kv")
 
         # Controller initialisieren
         self.controller = AppController(app=self)
