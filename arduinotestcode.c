@@ -1,247 +1,242 @@
-#include <TMCStepper.h>
-#include <AccelStepper.h>
+#include <Wire.h>
 
-// ==============================
-//        Hardware-Setup
-// ==============================
-#define SERIAL_PORT      Serial1    // Mega: RX1=19, TX1=18
-#define R_SENSE          0.11f
+// --------------------------------------
+// Konfiguration
+// --------------------------------------
+static uint8_t i2c_addr = 0x13;   // Slave-Adresse (anpassbar mit 'addr')
+static const unsigned long BAUD = 115200;
 
-// UART-Adressen pro Treiber (über MS1/MS2 gesetzt)
-#define ADDR_M1          0b00
-#define ADDR_M2          0b01
-#define ADDR_M3          0b10
+// Protokoll (muss zum Slave passen)
+enum : uint8_t {
+  CMD_FAHR   = 0,  // + Param int8_t
+  CMD_HOME   = 1,  // Param ignoriert
+  CMD_STATUS = 2   // Param ignoriert, Slave liefert 5 Bytes: [busy, pos0..3]
+};
 
-// Gemeinsamer Enable (LOW = aktiv)
-#define EN_PIN           2
+// Konsolenzeilenpuffer
+static char lineBuf[96];
+static size_t lineLen = 0;
 
-// STEP/DIR pro Motor (BITTE an deine Pins anpassen!)
-#define STEP_PIN_M1      3
-#define DIR_PIN_M1       4
-#define STEP_PIN_M2      5
-#define DIR_PIN_M2       6
-#define STEP_PIN_M3      7
-#define DIR_PIN_M3       8
-
-// ==============================
-//         Objekte
-// ==============================
-TMC2209Stepper driver1(&SERIAL_PORT, R_SENSE, ADDR_M1);
-TMC2209Stepper driver2(&SERIAL_PORT, R_SENSE, ADDR_M2);
-TMC2209Stepper driver3(&SERIAL_PORT, R_SENSE, ADDR_M3);
-
-AccelStepper stepper1(AccelStepper::DRIVER, STEP_PIN_M1, DIR_PIN_M1);
-AccelStepper stepper2(AccelStepper::DRIVER, STEP_PIN_M2, DIR_PIN_M2);
-AccelStepper stepper3(AccelStepper::DRIVER, STEP_PIN_M3, DIR_PIN_M3);
-
-// Bequeme Arrays für Schleifen
-TMC2209Stepper* drivers[3] = { &driver1, &driver2, &driver3 };
-AccelStepper*  steppers[3] = { &stepper1, &stepper2, &stepper3 };
-
-// ==============================
-//       Tuning / Defaults
-// ==============================
-// pro Motor eigene Parameter
-long  step_chunk[3]    = { 5000, 5000, 5000 };  // Schritte pro Kommando
-float max_speed_sps[3] = { 1000,  600,  600  };  // Schritte/s
-float accel_sps2[3]    = { 300,  300,  300  };  // Schritte/s^2
-
-bool enabled_all = true;  // gemeinsames Enable
-int  selected    = 0;     // 0..2 => aktuell ausgewählter Motor (Default: M1)
-
-// ==============================
-//       Hilfsfunktionen
-// ==============================
-void printStatus(int i) {
-  // i: 0..2
-  auto& d = *drivers[i];
-  auto& s = *steppers[i];
-
-  Serial.print(F("=== STATUS M")); Serial.print(i+1); Serial.println(F(" ==="));
-  Serial.print(F("IFCNT       : ")); Serial.println(d.IFCNT());
-  Serial.print(F("rms_current : ")); Serial.println(d.rms_current());
-  Serial.print(F("microsteps  : ")); Serial.println(d.microsteps());
-  Serial.print(F("toff        : ")); Serial.println(d.toff());
-  Serial.print(F("GCONF       : 0x")); Serial.println(d.GCONF(), HEX);
-  Serial.print(F("DRV_STATUS  : 0x")); Serial.println(d.DRV_STATUS(), HEX);
-  Serial.print(F("pos         : ")); Serial.println(s.currentPosition());
-  Serial.print(F("target      : ")); Serial.println(s.targetPosition());
-  Serial.print(F("maxSpeed    : ")); Serial.println(s.maxSpeed());
-  Serial.print(F("OTPW="));  Serial.print(d.otpw());
-  Serial.print(" OT=");    Serial.print(d.ot());
-  Serial.print(" S2GA=");  Serial.print(d.s2ga());
-  Serial.print(" S2GB=");  Serial.print(d.s2gb());
-  Serial.print(" OLA=");   Serial.print(d.ola());
-  Serial.print(" OLB=");   Serial.print(d.olb());
-  Serial.print(" CS_ACT=");Serial.println(d.cs_actual());
-  Serial.println();
+// --------------------------------------
+// Hilfsfunktionen
+// --------------------------------------
+void printPrompt() {
+  Serial.print("> ");
 }
 
-void driverCommonInit(TMC2209Stepper& d) {
-  d.begin();
-  d.pdn_disable(true);         // PDN als UART
-  d.mstep_reg_select(true);    // Microsteps via Register
-  d.toff(8);
-  d.microsteps(4);
-  d.en_spreadCycle(true);      // spreadCycle an (stealthChop aus) – ändere auf false für leiser
-  d.pwm_autoscale(true);
-  d.I_scale_analog(false);
-  d.vsense(true);
-  d.ihold(29);                 // ~65% Hold
-  d.irun(31);                  // 100% Run
-  d.iholddelay(0);
-  d.rms_current(2500);         // ggf. thermisch anpassen
+void printHelp() {
+  Serial.println(F("Befehle:"));
+  Serial.println(F("  fahr <n>     - bewegen um n Einheiten (-128..127)"));
+  Serial.println(F("  home         - Homing ausloesen"));
+  Serial.println(F("  status       - Status vom Slave lesen"));
+  Serial.println(F("  addr <wert>  - I2C-Adresse setzen (z.B. 0x13 oder 19)"));
+  Serial.println(F("  help         - diese Hilfe"));
 }
 
-void stepperCommonInit(AccelStepper& s, float vmax, float a) {
-  s.setMaxSpeed(vmax);
-  s.setAcceleration(a);
-  s.setMinPulseWidth(5);
-}
-
-// Parse: optionales "m1|m2|m3" vorn, sonst selected
-// gibt Motorindex 0..2 zurück
-int parseMotorIndex(String& cmd) {
-  if (cmd.length() >= 2 && (cmd[0] == 'm' || cmd[0] == 'M')) {
-    int n = cmd.substring(1,2).toInt();
-    if (n >= 1 && n <= 3) {
-      // prefix + evtl. Leerzeichen entfernen
-      int space = cmd.indexOf(' ');
-      if (space >= 0) {
-        cmd = cmd.substring(space+1);
-      } else {
-        cmd = ""; // nur mX ohne Rest
-      }
-      return n-1;
-    }
+bool sendCommand(uint8_t cmd, int8_t par) {
+  Wire.beginTransmission(i2c_addr);
+  Wire.write(cmd);
+  Wire.write((uint8_t)par);
+  uint8_t rc = Wire.endTransmission(); // 0 = OK
+  if (rc != 0) {
+    Serial.print(F("I2C Fehler endTransmission(): "));
+    Serial.println(rc);
+    return false;
   }
-  return selected;
+  return true;
 }
 
-// ==============================
-//            Setup
-// ==============================
-void setup() {
-  Serial.begin(115200);
-  while(!Serial);
-  Serial.println(F("\nStart 3x TMC2209 via UART + AccelStepper..."));
-
-  // UART für TMC2209 – 57600 ist oft stabiler als 115200
-  SERIAL_PORT.begin(57600);
-
-  // Pins
-  pinMode(EN_PIN, OUTPUT);
-  digitalWrite(EN_PIN, LOW);      // alle aktiv
-  enabled_all = true;
-
-  // Treiber initialisieren
-  driverCommonInit(driver1);
-  driverCommonInit(driver2);
-  driverCommonInit(driver3);
-
-  // AccelStepper-Parameter
-  stepperCommonInit(stepper1, max_speed_sps[0], accel_sps2[0]);
-  stepperCommonInit(stepper2, max_speed_sps[1], accel_sps2[1]);
-  stepperCommonInit(stepper3, max_speed_sps[2], accel_sps2[2]);
-
-  // UART-Test
-  Serial.print(F("test_connection M1: ")); Serial.println(driver1.test_connection());
-  Serial.print(F("test_connection M2: ")); Serial.println(driver2.test_connection());
-  Serial.print(F("test_connection M3: ")); Serial.println(driver3.test_connection());
-
-  // Startstatus
-  printStatus(0);
-  printStatus(1);
-  printStatus(2);
-
-  Serial.println(F("Befehle: [m1|m2|m3] r/u/s, +/-, p(status), steps N, acc A, ms M, sel K, e on|off"));
+// Liest genau 'need' Bytes (wenn moeglich) vom Slave
+int requestBytes(uint8_t need, uint8_t *buf) {
+  int n = Wire.requestFrom((int)i2c_addr, (int)need);
+  int got = 0;
+  while (Wire.available() && got < n) {
+    buf[got++] = Wire.read();
+  }
+  return got;
 }
 
-// ==============================
-//             Loop
-// ==============================
-void loop() {
-  // nicht blockierend fahren
-  stepper1.run();
-  stepper2.run();
-  stepper3.run();
+static inline void trim(char *s) {
+  // führende Spaces überspringen
+  char *p = s;
+  while (*p == ' ' || *p == '\t' || *p == '\r') p++;
+  if (p != s) memmove(s, p, strlen(p) + 1);
+  // trailing entfernen
+  size_t L = strlen(s);
+  while (L && (s[L-1] == ' ' || s[L-1] == '\t' || s[L-1] == '\r' || s[L-1] == '\n')) {
+    s[--L] = '\0';
+  }
+}
 
-  if (!Serial.available()) return;
+long parseLongAutoBase(const char *tok, bool *ok) {
+  if (!tok || !*tok) { if (ok) *ok = false; return 0; }
+  char *endptr = nullptr;
+  long v = strtol(tok, &endptr, 0); // auto base (0x.., 0.., dec)
+  if (ok) *ok = (endptr && *endptr == '\0');
+  return v;
+}
 
-  String cmd = Serial.readStringUntil('\n');
-  cmd.trim();
-  if (cmd.length() == 0) return;
+void handleStatus() {
+  if (!sendCommand(CMD_STATUS, 0)) return;
 
-  // spezielle globale Befehle zuerst prüfen
-  if (cmd.startsWith("sel ")) {
-    int k = cmd.substring(4).toInt();
-    if (k >= 1 && k <= 3) {
-      selected = k-1;
-      Serial.print(F(">> selected = M")); Serial.println(k);
-    } else {
-      Serial.println(F(">> sel erwartet 1..3"));
-    }
-    return;
-  } else if (cmd.startsWith("e ")) {
-    String v = cmd.substring(2);
-    v.trim();
-    if (v == "on") {
-      enabled_all = true;
-      digitalWrite(EN_PIN, LOW);
-      Serial.println(F(">> enable = ON (alle)"));
-    } else if (v == "off") {
-      enabled_all = false;
-      digitalWrite(EN_PIN, HIGH);
-      Serial.println(F(">> enable = OFF (alle)"));
-    } else {
-      Serial.println(F(">> e on|off"));
-    }
+  uint8_t buf[5] = {0};
+  int got = requestBytes(5, buf);
+  if (got < 1) {
+    Serial.println(F("Keine Statusdaten empfangen."));
     return;
   }
 
-  // Motorpräfix parsen (m1|m2|m3), sonst aktueller
-  int i = parseMotorIndex(cmd);
-  auto& d = *drivers[i];
-  auto& s = *steppers[i];
+  uint8_t busy = buf[0];
+  Serial.print(F("busy: "));
+  Serial.println(busy ? F("ja") : F("nein"));
 
-  // Einzelkommandos (auf Motor i)
-  if (cmd == "r") {                    // vorwärts
-    Serial.print(F(">> M")); Serial.print(i+1); Serial.println(F(" vorwärts"));
-    s.move(step_chunk[i]);
-  } else if (cmd == "u") {             // rückwärts
-    Serial.print(F(">> M")); Serial.print(i+1); Serial.println(F(" rückwärts"));
-    s.move(-step_chunk[i]);
-  } else if (cmd == "s") {             // sanft stoppen
-    Serial.print(F(">> M")); Serial.print(i+1); Serial.println(F(" stop"));
-    s.stop();
-  } else if (cmd == "+") {             // schneller
-    max_speed_sps[i] += 200;
-    s.setMaxSpeed(max_speed_sps[i]);
-    Serial.print(F(">> M")); Serial.print(i+1); Serial.print(F(" maxSpeed = "));
-    Serial.println(max_speed_sps[i]);
-  } else if (cmd == "-") {             // langsamer
-    max_speed_sps[i] = max(100.0f, max_speed_sps[i] - 200);
-    s.setMaxSpeed(max_speed_sps[i]);
-    Serial.print(F(">> M")); Serial.print(i+1); Serial.print(F(" maxSpeed = "));
-    Serial.println(max_speed_sps[i]);
-  } else if (cmd == "p" || cmd == "status") {
-    printStatus(i);
-  } else if (cmd.startsWith("steps ")) {
-    long v = cmd.substring(6).toInt();
-    if (v != 0) step_chunk[i] = v;
-    Serial.print(F(">> M")); Serial.print(i+1); Serial.print(F(" step_chunk = "));
-    Serial.println(step_chunk[i]);
-  } else if (cmd.startsWith("acc ")) {
-    float a = cmd.substring(4).toFloat();
-    if (a > 0) { accel_sps2[i] = a; s.setAcceleration(accel_sps2[i]); }
-    Serial.print(F(">> M")); Serial.print(i+1); Serial.print(F(" accel = "));
-    Serial.println(accel_sps2[i]);
-  } else if (cmd.startsWith("ms ")) {
-    int ms = cmd.substring(3).toInt();
-    d.microsteps(ms);
-    Serial.print(F(">> M")); Serial.print(i+1); Serial.print(F(" microsteps = "));
-    Serial.println(d.microsteps());
+  if (got >= 5) {
+    // Little-Endian -> 32-bit signed
+    int32_t pos = (int32_t)(
+        (uint32_t)buf[1] |
+        ((uint32_t)buf[2] << 8) |
+        ((uint32_t)buf[3] << 16) |
+        ((uint32_t)buf[4] << 24)
+    );
+    Serial.print(F("position (steps): "));
+    Serial.println(pos);
+    // Umrechnung in Einheiten (1 Einheit = 400 Steps)
+    float units = pos / 400.0f;
+    Serial.print(F("position (einheiten): "));
+    Serial.println(units, 3);
   } else {
-    Serial.println(F("Befehle: [m1|m2|m3] r/u/s, +/-, p(status), steps N, acc A, ms M, sel K, e on|off"));
+    Serial.println(F("(Hinweis: Slave hat weniger als 5 Bytes geliefert.)"));
+  }
+}
+
+void handleFahr(long val) {
+  // In int8_t Bereich beschneiden (Slave erwartet 1 Byte)
+  if (val < -128) { Serial.println(F("Warnung: < -128, auf -128 begrenzt.")); val = -128; }
+  if (val >  127) { Serial.println(F("Warnung: > 127, auf 127 begrenzt."));  val = 127;  }
+  int8_t par = (int8_t)val;
+
+  if (!sendCommand(CMD_FAHR, par)) return;
+
+  // optional: ACK (1 Byte) abholen
+  uint8_t ack = 0;
+  int got = requestBytes(1, &ack);
+  if (got == 1) {
+    Serial.print(F("ACK: 0x"));
+    if (ack < 16) Serial.print('0');
+    Serial.println(ack, HEX);
+  } else {
+    Serial.println(F("Kein ACK empfangen (optional)."));
+  }
+}
+
+void handleHome() {
+  if (!sendCommand(CMD_HOME, 0)) return;
+
+  // optional: ACK (1 Byte)
+  uint8_t ack = 0;
+  int got = requestBytes(1, &ack);
+  if (got == 1) {
+    Serial.print(F("ACK: 0x"));
+    if (ack < 16) Serial.print('0');
+    Serial.println(ack, HEX);
+  } else {
+    Serial.println(F("Kein ACK empfangen (optional)."));
+  }
+}
+
+void handleAddr(long val, bool ok) {
+  if (!ok || val < 0 || val > 127) {
+    Serial.println(F("Ungueltige Adresse. Erlaubt: 0..127 bzw. 0x00..0x7F"));
+    return;
+  }
+  i2c_addr = (uint8_t)val;
+  Serial.print(F("Neue I2C-Adresse: 0x"));
+  if (i2c_addr < 16) Serial.print('0');
+  Serial.println(i2c_addr, HEX);
+}
+
+// --------------------------------------
+// Parser für Konsolenzeilen
+// --------------------------------------
+void handleLine(char *line) {
+  trim(line);
+  if (!*line) return;
+
+  // Token 1
+  char *cmd = strtok(line, " \t");
+  if (!cmd) return;
+
+  // bewusst nur Kleinbuchstaben erwarten (einfacher)
+  if (!strcmp(cmd, "help") || !strcmp(cmd, "?")) {
+    printHelp();
+    return;
+  }
+
+  if (!strcmp(cmd, "fahr") || !strcmp(cmd, "move")) {
+    char *p = strtok(nullptr, " \t");
+    bool ok = false;
+    long v = parseLongAutoBase(p, &ok);
+    if (!ok) {
+      Serial.println(F("Syntax: fahr <n>"));
+      return;
+    }
+    handleFahr(v);
+    return;
+  }
+
+  if (!strcmp(cmd, "home")) {
+    handleHome();
+    return;
+  }
+
+  if (!strcmp(cmd, "status") || !strcmp(cmd, "stat")) {
+    handleStatus();
+    return;
+  }
+
+  if (!strcmp(cmd, "addr")) {
+    char *p = strtok(nullptr, " \t");
+    bool ok = false;
+    long v = parseLongAutoBase(p, &ok);
+    handleAddr(v, ok);
+    return;
+  }
+
+  Serial.println(F("Unbekannter Befehl. 'help' fuer Hilfe."));
+}
+
+// --------------------------------------
+// Arduino-Standard
+// --------------------------------------
+void setup() {
+  Serial.begin(BAUD);
+  while (!Serial) { /* warten (z.B. Leonardo) */ }
+
+  Wire.begin(); // Master
+  delay(50);
+
+  Serial.println(F("I2C-Master-Konsole bereit."));
+  Serial.print(F("Slave-Adresse: 0x"));
+  if (i2c_addr < 16) Serial.print('0');
+  Serial.println(i2c_addr, HEX);
+  printHelp();
+  printPrompt();
+}
+
+void loop() {
+  while (Serial.available()) {
+    char c = (char)Serial.read();
+    if (c == '\r') continue; // ignorieren
+    if (c == '\n') {
+      lineBuf[lineLen] = '\0';
+      handleLine(lineBuf);
+      lineLen = 0;
+      printPrompt();
+    } else {
+      if (lineLen < sizeof(lineBuf) - 1) {
+        lineBuf[lineLen++] = c;
+      }
+      // sonst: Überlaufschutz – weitere Zeichen verwerfen
+    }
   }
 }
