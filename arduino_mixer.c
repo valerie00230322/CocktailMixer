@@ -1,6 +1,7 @@
 #include <TMCStepper.h>
 #include <AccelStepper.h>
 #include <Wire.h>
+#include <stdint.h>
 
 // ==============================
 //         Konfiguration
@@ -25,11 +26,75 @@ const int DISTANCE_THRESHOLD_CM = 20; // Objekt erkannt, wenn Abstand <= 20 cm
 // 5 = PUMPE4
 // 6 = PUMPE5
 // 7 = PUMPE6
-float max_speed[8]  = { 6000.0f, 1000.0f, 100000.0f, 10000.0f, 2500.0f, 10000.0f, 10000.0f, 10000.0f };
-float accel_sps2[8] = {30000.0f, 1000.0f, 10000.0f, 10000.0f, 10000.0f, 10000.0f, 10000.0f, 10000.0f};
+// 8 = PUMPE7
+// 9 = PUMPE8
+// 10 = PUMPE9
+// 11 = PUMPE10
+float max_speed[12]  = {
+  6000.0f,   // PLF
+  1000.0f,   // BAND
+  100000.0f, // P1
+  10000.0f,  // P2
+  2500.0f,   // P3
+  10000.0f,  // P4
+  10000.0f,  // P5
+  10000.0f,  // P6
+  2500.0f,   // P7
+  10000.0f,  // P8
+  10000.0f,  // P9
+  10000.0f   // P10
+};
 
-const int steps_u[8]    = { 4, 16, 32, 4, 4, 4, 4, 4 }; // Microsteps
-const int current_mA[8] = { 800, 800, 800, 800, 800, 800, 800, 800 }; // RMS-Strom
+float accel_sps2[12] = {
+  30000.0f, // PLF
+  1000.0f,  // BAND
+  10000.0f, // P1
+  10000.0f, // P2
+  10000.0f, // P3
+  10000.0f, // P4
+  10000.0f, // P5
+  10000.0f, // P6
+  10000.0f, // P7
+  10000.0f, // P8
+  10000.0f, // P9
+  10000.0f  // P10
+};
+
+// Hold-Current (TMC ihold Register, 0..31) pro Motor
+uint8_t ihold_vals[12] = {
+  29, // PLF
+  29, // BAND
+  0,  // P1
+  0,  // P2
+  0,  // P3
+  0,  // P4
+  0,  // P5
+  0,  // P6
+  0,  // P7
+  0,  // P8
+  0,  // P9
+  0   // P10
+};
+
+const int steps_u[12] = {
+  4,  // PLF
+  16, // BAND
+  32, // P1
+  4,  // P2
+  4,  // P3
+  4,  // P4
+  4,  // P5
+  4,  // P6
+  4,  // P7
+  4,  // P8
+  4,  // P9
+  4   // P10
+};
+
+const int current_mA[12] = {
+  800, 800, 800, 800, 800, 800,
+  800, 800, 800, 800, 800, 800
+};
 
 // ==============================
 //         Befehls-Codes
@@ -48,6 +113,7 @@ enum : uint8_t {
 // ==============================
 #define SERIAL_PORT    Serial1
 #define SERIAL_PORT_2  Serial2
+#define SERIAL_PORT_3  Serial3
 #define R_SENSE        0.11f
 #define I2C_ADDR       0x13
 
@@ -60,30 +126,68 @@ enum : uint8_t {
 #define ADDR_PUMPE4    0b01
 #define ADDR_PUMPE5    0b10
 #define ADDR_PUMPE6    0b11
+#define ADDR_PUMPE7    0b00
+#define ADDR_PUMPE8    0b01
+#define ADDR_PUMPE9    0b10
+#define ADDR_PUMPE10   0b11
 
-#define EN_PIN         2   // Gemeinsamer Enable für alle Treiber
+// Achtung: Die folgenden Nummern sind hier die ATmega-Physik-Pins
+// (so wie in deiner Liste). Wenn du das Arduino-Mega-Board-Variant
+// benutzt, musst du diese auf die entsprechenden Arduino-Pins mappen.
 
-// STEP/DIR-Pins (deine letzte Version)
-#define STEP_PIN_PLF    3
-#define DIR_PIN_PLF     4
+// PLF:  Step = Pin 50 (PD7), Dir = Pin 49 (PD6)
+#define STEP_PIN_PLF     50
+#define DIR_PIN_PLF      49
 
-#define STEP_PIN_BAND   5
-#define DIR_PIN_BAND    6
+// Band: Step = 47 (PD4), Dir = 41 (PL6)
+#define STEP_PIN_BAND    47
+#define DIR_PIN_BAND     41
 
-#define STEP_PIN_PUMPE1 7
-#define DIR_PIN_PUMPE1  8
-#define STEP_PIN_PUMPE2 9
-#define DIR_PIN_PUMPE2  10
-#define STEP_PIN_PUMPE3 22
-#define DIR_PIN_PUMPE3  23
-#define STEP_PIN_PUMPE4 24
-#define DIR_PIN_PUMPE4  25
-#define STEP_PIN_PUMPE5 26
-#define DIR_PIN_PUMPE5  27
-#define STEP_PIN_PUMPE6 28
-#define DIR_PIN_PUMPE6  29
+// Pumpe1: Step = 55 (PC2), Dir = 56 (PC3)
+#define STEP_PIN_PUMPE1  55
+#define DIR_PIN_PUMPE1   56
 
-// Sensoren
+// Pumpe2: Step = 35 (PL0), Dir = 36 (PL1)
+#define STEP_PIN_PUMPE2  35
+#define DIR_PIN_PUMPE2   36
+
+// Pumpe3: Step = 6 (PE4), Dir = 5 (PE3)
+#define STEP_PIN_PUMPE3  6
+#define DIR_PIN_PUMPE3   5
+
+// Pumpe4: Step = 51 (PG0), Dir = 7 (PE5)
+#define STEP_PIN_PUMPE4  51
+#define DIR_PIN_PUMPE4   7
+
+// Pumpe5: Step = 15 (PH3), Dir = 14 (PH2)
+#define STEP_PIN_PUMPE5  15
+#define DIR_PIN_PUMPE5   14
+
+// Pumpe6: Step = 2 (PE0/RXD0), Dir = 1 (PG5)
+#define STEP_PIN_PUMPE6  2
+#define DIR_PIN_PUMPE6   1
+
+// Pumpe7: Step = 91 (PF6/JTAG-TDO/A6), Dir = 90 (PF7/JTAG-TDI/A7)
+#define STEP_PIN_PUMPE7  91
+#define DIR_PIN_PUMPE7   90
+
+// Pumpe8: Step = 72 (PA6), Dir = 71 (PA7)
+#define STEP_PIN_PUMPE8  72
+#define DIR_PIN_PUMPE8   71
+
+// Pumpe9: Step = 68 (PJ5), Dir = 67 (PJ4)
+#define STEP_PIN_PUMPE9  68
+#define DIR_PIN_PUMPE9   67
+
+// Pumpe10: Step = 66 (PJ3), Dir = 60 (PC7)
+#define STEP_PIN_PUMPE10 66
+#define DIR_PIN_PUMPE10  60
+
+// Gemeinsamer Enable für alle Treiber: Pin 19 (PB0/SS)
+#define EN_PIN           19
+
+// Sensoren – hier habe ich deine alten Pins übernommen,
+// ggf. musst du die auf deine neue Platine anpassen.
 #define HOME_PIN       13  // nur PLF (Referenzschalter)
 #define SR04_TRIG      34
 #define SR04_ECHO      35
@@ -91,14 +195,18 @@ enum : uint8_t {
 // ==============================
 //         Objekte
 // ==============================
-TMC2209Stepper driver_plf   (&SERIAL_PORT,   R_SENSE, ADDR_PLF);
-TMC2209Stepper driver_band  (&SERIAL_PORT,   R_SENSE, ADDR_BAND);
-TMC2209Stepper driver_pumpe1(&SERIAL_PORT,   R_SENSE, ADDR_PUMPE1);
-TMC2209Stepper driver_pumpe2(&SERIAL_PORT,   R_SENSE, ADDR_PUMPE2);
-TMC2209Stepper driver_pumpe3(&SERIAL_PORT_2, R_SENSE, ADDR_PUMPE3);
-TMC2209Stepper driver_pumpe4(&SERIAL_PORT_2, R_SENSE, ADDR_PUMPE4);
-TMC2209Stepper driver_pumpe5(&SERIAL_PORT_2, R_SENSE, ADDR_PUMPE5);
-TMC2209Stepper driver_pumpe6(&SERIAL_PORT_2, R_SENSE, ADDR_PUMPE6);
+TMC2209Stepper driver_plf    (&SERIAL_PORT,   R_SENSE, ADDR_PLF);
+TMC2209Stepper driver_band   (&SERIAL_PORT,   R_SENSE, ADDR_BAND);
+TMC2209Stepper driver_pumpe1 (&SERIAL_PORT,   R_SENSE, ADDR_PUMPE1);
+TMC2209Stepper driver_pumpe2 (&SERIAL_PORT,   R_SENSE, ADDR_PUMPE2);
+TMC2209Stepper driver_pumpe3 (&SERIAL_PORT_2, R_SENSE, ADDR_PUMPE3);
+TMC2209Stepper driver_pumpe4 (&SERIAL_PORT_2, R_SENSE, ADDR_PUMPE4);
+TMC2209Stepper driver_pumpe5 (&SERIAL_PORT_2, R_SENSE, ADDR_PUMPE5);
+TMC2209Stepper driver_pumpe6 (&SERIAL_PORT_2, R_SENSE, ADDR_PUMPE6);
+TMC2209Stepper driver_pumpe7 (&SERIAL_PORT_3, R_SENSE, ADDR_PUMPE7);
+TMC2209Stepper driver_pumpe8 (&SERIAL_PORT_3, R_SENSE, ADDR_PUMPE8);
+TMC2209Stepper driver_pumpe9 (&SERIAL_PORT_3, R_SENSE, ADDR_PUMPE9);
+TMC2209Stepper driver_pumpe10(&SERIAL_PORT_3, R_SENSE, ADDR_PUMPE10);
 
 AccelStepper PLF    (AccelStepper::DRIVER, STEP_PIN_PLF,    DIR_PIN_PLF);
 AccelStepper BAND   (AccelStepper::DRIVER, STEP_PIN_BAND,   DIR_PIN_BAND);
@@ -108,13 +216,28 @@ AccelStepper PUMPE3 (AccelStepper::DRIVER, STEP_PIN_PUMPE3, DIR_PIN_PUMPE3);
 AccelStepper PUMPE4 (AccelStepper::DRIVER, STEP_PIN_PUMPE4, DIR_PIN_PUMPE4);
 AccelStepper PUMPE5 (AccelStepper::DRIVER, STEP_PIN_PUMPE5, DIR_PIN_PUMPE5);
 AccelStepper PUMPE6 (AccelStepper::DRIVER, STEP_PIN_PUMPE6, DIR_PIN_PUMPE6);
+AccelStepper PUMPE7 (AccelStepper::DRIVER, STEP_PIN_PUMPE7, DIR_PIN_PUMPE7);
+AccelStepper PUMPE8 (AccelStepper::DRIVER, STEP_PIN_PUMPE8, DIR_PIN_PUMPE8);
+AccelStepper PUMPE9 (AccelStepper::DRIVER, STEP_PIN_PUMPE9, DIR_PIN_PUMPE9);
+AccelStepper PUMPE10(AccelStepper::DRIVER, STEP_PIN_PUMPE10, DIR_PIN_PUMPE10);
 
 // ==============================
 //       Globale Helfer-Arrays
 // ==============================
-AccelStepper*   MOT[] = { &PLF, &BAND, &PUMPE1, &PUMPE2, &PUMPE3, &PUMPE4, &PUMPE5, &PUMPE6 };
-TMC2209Stepper* DRV[] = { &driver_plf, &driver_band, &driver_pumpe1, &driver_pumpe2,
-                          &driver_pumpe3, &driver_pumpe4, &driver_pumpe5, &driver_pumpe6 };
+AccelStepper*   MOT[] = {
+  &PLF, &BAND,
+  &PUMPE1, &PUMPE2, &PUMPE3, &PUMPE4,
+  &PUMPE5, &PUMPE6, &PUMPE7, &PUMPE8, &PUMPE9, &PUMPE10
+};
+
+TMC2209Stepper* DRV[] = {
+  &driver_plf, &driver_band,
+  &driver_pumpe1, &driver_pumpe2,
+  &driver_pumpe3, &driver_pumpe4,
+  &driver_pumpe5, &driver_pumpe6,
+  &driver_pumpe7, &driver_pumpe8,
+  &driver_pumpe9, &driver_pumpe10
+};
 
 // ==============================
 //   Task-Status-Strukturen
@@ -148,7 +271,7 @@ inline long unitsToSteps(int units) {
   return (long)units * (long)STEPS_PER_UNIT;
 }
 
-void driverCommonInit(TMC2209Stepper& d, int microsteps, int current_mA) {
+void driverCommonInit(TMC2209Stepper& d, int microsteps, int current_mA, uint8_t ihold_val) {
   d.begin();
   d.pdn_disable(true);
   d.mstep_reg_select(true);
@@ -158,7 +281,7 @@ void driverCommonInit(TMC2209Stepper& d, int microsteps, int current_mA) {
   d.pwm_autoscale(true);
   d.I_scale_analog(false);
   d.vsense(true);
-  d.ihold(29);
+  d.ihold(ihold_val);
   d.irun(31);
   d.iholddelay(0);
   d.rms_current(current_mA);
@@ -210,7 +333,7 @@ void entladen() {
   BAND.setSpeed(-band_max_speed);
 
   // Timer-Modus aktivieren
-  activeBandTask.motor = &BAND;
+  activeBandTask.motor    = &BAND;
   activeBandTask.stopTime = millis() + BAND_TIMEOUT_MS;
 
   // PLF stoppen
@@ -240,7 +363,7 @@ void beladen() {
   BAND.setSpeed(band_max_speed);
 
   // Sensor-Modus aktivieren (stopTime = 0)
-  activeBandTask.motor = &BAND;
+  activeBandTask.motor    = &BAND;
   activeBandTask.stopTime = 0;
 
   // PLF stoppen
@@ -257,8 +380,8 @@ bool home() {
   const long  BACKOFF_STEPS  = 800;
   const unsigned long TIMEOUT_MS = 20000;
 
-  float oldMax = PLF.maxSpeed();
-  float oldAcc = PLF.acceleration();
+  float oldMax  = PLF.maxSpeed();
+  float oldAcc  = PLF.acceleration();
   float homeAbs = (HOME_SPEED < 0) ? -HOME_SPEED : HOME_SPEED;
 
   PLF.setAcceleration(HOME_ACCEL);
@@ -296,8 +419,8 @@ void pumpe() {
   long    duration_s = zeit_sek_i2c;
   int     motor_array_index = pump_id + 1; // pump_id 1 -> MOT[2], usw.
 
-  // Nur gültige Pumpen (1..6)
-  if (pump_id >= 1 && pump_id <= 6) {
+  // gültige Pumpen IDs 1..10
+  if (pump_id >= 1 && pump_id <= 10) {
     AccelStepper* motor = MOT[motor_array_index];
     float speed = max_speed[motor_array_index];
 
@@ -402,6 +525,7 @@ void setup() {
   // UART zu den TMC2209 Treibern
   SERIAL_PORT.begin(57600);
   SERIAL_PORT_2.begin(57600);
+  SERIAL_PORT_3.begin(57600);
 
   // EN der Treiber
   pinMode(EN_PIN, OUTPUT);
@@ -413,8 +537,8 @@ void setup() {
   pinMode(SR04_ECHO, INPUT);
 
   // alle Stepper + Treiber konfigurieren
-  for (int i = 0; i < 8; ++i) {
-    driverCommonInit(*DRV[i], steps_u[i], current_mA[i]);
+  for (int i = 0; i < 12; ++i) {
+    driverCommonInit(*DRV[i], steps_u[i], current_mA[i], ihold_vals[i]);
     stepperCommonInit(*MOT[i],  max_speed[i], accel_sps2[i]);
     MOT[i]->setSpeed(0);
     MOT[i]->moveTo(MOT[i]->currentPosition()); // distanceToGo = 0
@@ -434,7 +558,7 @@ void loop() {
       if (millis() >= activeBandTask.stopTime) {
         activeBandTask.motor->setSpeed(0);
         activeBandTask.motor->runSpeed();
-        activeBandTask.motor = nullptr;
+        activeBandTask.motor    = nullptr;
         activeBandTask.stopTime = 0;
         busy = false;
       }
