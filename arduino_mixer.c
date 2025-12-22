@@ -1,25 +1,23 @@
+#include "pins.h"
+
 #include <TMCStepper.h>
 #include <AccelStepper.h>
 #include <Wire.h>
 #include <stdint.h>
 
 // ==============================
-//         Konfiguration 
+//         Konfiguration
 // ==============================
 static const long STEPS_PER_UNIT = 400; // 1 Einheit = 400 Steps
-
-// Globale Busy-Variable (volatile, da sie in ISRs und Loop verwendet wird)
 volatile bool busy = false;
 
-// Zeitkonstante für Entladen (in Millisekunden)
-const unsigned long BAND_TIMEOUT_MS = 10000UL; // 10 Sekunden Laufzeit Entladen
-
-// Schwellenwert für den Ultraschallsensor (in cm)
-const int DISTANCE_THRESHOLD_CM = 20; // Objekt erkannt, wenn Abstand <= 20 cm
-
-// Sehr große Schrittzahl für quasi "endloses" Fahren
+const unsigned long BAND_TIMEOUT_MS = 10000UL; // 10 Sekunden
+const int DISTANCE_THRESHOLD_CM = 20;          // <= 20cm erkannt
 const long CONTINUOUS_STEPS = 100000000L;
 
+// ==============================
+//         Motor Parameter
+// ==============================
 float max_speed[12]  = {
   6000.0f,   // PLF
   1000.0f,   // BAND
@@ -50,7 +48,6 @@ float accel_sps2[12] = {
   10000.0f  // P10
 };
 
-// Hold-Current (TMC ihold Register, 0..31) pro Motor
 uint8_t ihold_vals[12] = {
   29, // PLF
   29, // BAND
@@ -93,7 +90,7 @@ const int current_mA[12] = {
   800, //P7
   800, //P8
   800, //P9
-  800 //P10
+  800  //P10
 };
 
 // ==============================
@@ -131,61 +128,65 @@ enum : uint8_t {
 #define ADDR_PUMPE9    0b10
 #define ADDR_PUMPE10   0b11
 
-// PLF:  Step = Pin 50 (PD7), Dir = Pin 49 (PD6)
-#define STEP_PIN_PLF     50
-#define DIR_PIN_PLF      49
+// ============================================================
+// Motor STEP/DIR Arduino-Pinnummern
+// (für AccelStepper müssen es Arduino-Pins sein)
+// ============================================================
+// Achtung: Das Mapping gilt für Arduino Mega 2560 Core.
+// Wenn du KEIN Arduino-Core-Pinmapping nutzt, musst du
+// AccelStepper ggf. portbasiert anpassen.
+//
+// PLF: PB5 / PA0
+static const uint8_t STEP_PIN_PLF = 11;  // PB5
+static const uint8_t DIR_PIN_PLF  = 22;  // PA0
 
-// Band: Step = 47 (PD4), Dir = 41 (PL6)
-#define STEP_PIN_BAND    47
-#define DIR_PIN_BAND     41
+// BAND: PB6 / PA1
+static const uint8_t STEP_PIN_BAND = 12; // PB6
+static const uint8_t DIR_PIN_BAND  = 23; // PA1
 
-// Pumpe1: Step = 55 (PC2), Dir = 56 (PC3)
-#define STEP_PIN_PUMPE1  55
-#define DIR_PIN_PUMPE1   56
+// P1: PB7 / PA2
+static const uint8_t STEP_PIN_PUMPE1 = 13; // PB7
+static const uint8_t DIR_PIN_PUMPE1  = 24; // PA2
 
-// Pumpe2: Step = 35 (PL0), Dir = 36 (PL1)
-#define STEP_PIN_PUMPE2  35
-#define DIR_PIN_PUMPE2   36
+// Fehlende Step-Pins über X4 (wie du wolltest):
+// P2 STEP = X4_1 (PE0 / Arduino Pin 0)
+static const uint8_t STEP_PIN_PUMPE2 = 0;  // X4_1 = PE0
+static const uint8_t DIR_PIN_PUMPE2  = 25; // PA3
 
-// Pumpe3: Step = 6 (PE4), Dir = 5 (PE3)
-#define STEP_PIN_PUMPE3  6
-#define DIR_PIN_PUMPE3   5
+// P3 STEP = X4_2 (PE1 / Arduino Pin 1)
+static const uint8_t STEP_PIN_PUMPE3 = 1;  // X4_2 = PE1
+static const uint8_t DIR_PIN_PUMPE3  = 26; // PA4
 
-// Pumpe4: Step = 51 (PG0), Dir = 7 (PE5)
-#define STEP_PIN_PUMPE4  51
-#define DIR_PIN_PUMPE4   7
+// P4 STEP = X4_4 (PE3 / Arduino Pin 5)
+static const uint8_t STEP_PIN_PUMPE4 = 5;  // X4_4 = PE3
+static const uint8_t DIR_PIN_PUMPE4  = 27; // PA5
 
-// Pumpe5: Step = 15 (PH3), Dir = 14 (PH2)
-#define STEP_PIN_PUMPE5  15
-#define DIR_PIN_PUMPE5   14
+// P5: PH3 / PA6
+static const uint8_t STEP_PIN_PUMPE5 = 6;  // PH3
+static const uint8_t DIR_PIN_PUMPE5  = 28; // PA6
 
-// Pumpe6: Step = 2 (PE0/RXD0), Dir = 1 (PG5)
-#define STEP_PIN_PUMPE6  2
-#define DIR_PIN_PUMPE6   1
+// P6: PH4 / PA7
+static const uint8_t STEP_PIN_PUMPE6 = 7;  // PH4
+static const uint8_t DIR_PIN_PUMPE6  = 29; // PA7
 
-// Pumpe7: Step = 91 (PF6/JTAG-TDO/A6), Dir = 90 (PF7/JTAG-TDI/A7)
-#define STEP_PIN_PUMPE7  91
-#define DIR_PIN_PUMPE7   90
+// P7: PH5 / PC0
+static const uint8_t STEP_PIN_PUMPE7 = 8;  // PH5
+static const uint8_t DIR_PIN_PUMPE7  = 37; // PC0
 
-// Pumpe8: Step = 72 (PA6), Dir = 71 (PA7)
-#define STEP_PIN_PUMPE8  72
-#define DIR_PIN_PUMPE8   71
+// P8: PL3 / PC1
+static const uint8_t STEP_PIN_PUMPE8 = 46; // PL3
+static const uint8_t DIR_PIN_PUMPE8  = 36; // PC1
 
-// Pumpe9: Step = 68 (PJ5), Dir = 67 (PJ4)
-#define STEP_PIN_PUMPE9  68
-#define DIR_PIN_PUMPE9   67
+// P9: PL4 / PC2
+static const uint8_t STEP_PIN_PUMPE9 = 45; // PL4
+static const uint8_t DIR_PIN_PUMPE9  = 35; // PC2
 
-// Pumpe10: Step = 66 (PJ3), Dir = 60 (PC7)
-#define STEP_PIN_PUMPE10 66
-#define DIR_PIN_PUMPE10  60
+// P10: PL5 / PC3
+static const uint8_t STEP_PIN_PUMPE10 = 44; // PL5
+static const uint8_t DIR_PIN_PUMPE10  = 34; // PC3
 
-// Gemeinsamer Enable für alle Treiber: Pin 19 (PB0/SS)
-#define EN_PIN           19
-
-// Sensoren
-#define HOME_PIN       13  // nur PLF (Referenzschalter)
-#define SR04_TRIG      34
-#define SR04_ECHO      35
+// EN = PL6
+static const uint8_t EN_PIN_NUM = 43; // PL6
 
 // ==============================
 //         Objekte
@@ -203,17 +204,17 @@ TMC2209Stepper driver_pumpe8 (&SERIAL_PORT_3, R_SENSE, ADDR_PUMPE8);
 TMC2209Stepper driver_pumpe9 (&SERIAL_PORT_3, R_SENSE, ADDR_PUMPE9);
 TMC2209Stepper driver_pumpe10(&SERIAL_PORT_3, R_SENSE, ADDR_PUMPE10);
 
-AccelStepper PLF    (AccelStepper::DRIVER, STEP_PIN_PLF,    DIR_PIN_PLF);
-AccelStepper BAND   (AccelStepper::DRIVER, STEP_PIN_BAND,   DIR_PIN_BAND);
-AccelStepper PUMPE1 (AccelStepper::DRIVER, STEP_PIN_PUMPE1, DIR_PIN_PUMPE1);
-AccelStepper PUMPE2 (AccelStepper::DRIVER, STEP_PIN_PUMPE2, DIR_PIN_PUMPE2);
-AccelStepper PUMPE3 (AccelStepper::DRIVER, STEP_PIN_PUMPE3, DIR_PIN_PUMPE3);
-AccelStepper PUMPE4 (AccelStepper::DRIVER, STEP_PIN_PUMPE4, DIR_PIN_PUMPE4);
-AccelStepper PUMPE5 (AccelStepper::DRIVER, STEP_PIN_PUMPE5, DIR_PIN_PUMPE5);
-AccelStepper PUMPE6 (AccelStepper::DRIVER, STEP_PIN_PUMPE6, DIR_PIN_PUMPE6);
-AccelStepper PUMPE7 (AccelStepper::DRIVER, STEP_PIN_PUMPE7, DIR_PIN_PUMPE7);
-AccelStepper PUMPE8 (AccelStepper::DRIVER, STEP_PIN_PUMPE8, DIR_PIN_PUMPE8);
-AccelStepper PUMPE9 (AccelStepper::DRIVER, STEP_PIN_PUMPE9, DIR_PIN_PUMPE9);
+AccelStepper PLF    (AccelStepper::DRIVER, STEP_PIN_PLF,     DIR_PIN_PLF);
+AccelStepper BAND   (AccelStepper::DRIVER, STEP_PIN_BAND,    DIR_PIN_BAND);
+AccelStepper PUMPE1 (AccelStepper::DRIVER, STEP_PIN_PUMPE1,  DIR_PIN_PUMPE1);
+AccelStepper PUMPE2 (AccelStepper::DRIVER, STEP_PIN_PUMPE2,  DIR_PIN_PUMPE2);
+AccelStepper PUMPE3 (AccelStepper::DRIVER, STEP_PIN_PUMPE3,  DIR_PIN_PUMPE3);
+AccelStepper PUMPE4 (AccelStepper::DRIVER, STEP_PIN_PUMPE4,  DIR_PIN_PUMPE4);
+AccelStepper PUMPE5 (AccelStepper::DRIVER, STEP_PIN_PUMPE5,  DIR_PIN_PUMPE5);
+AccelStepper PUMPE6 (AccelStepper::DRIVER, STEP_PIN_PUMPE6,  DIR_PIN_PUMPE6);
+AccelStepper PUMPE7 (AccelStepper::DRIVER, STEP_PIN_PUMPE7,  DIR_PIN_PUMPE7);
+AccelStepper PUMPE8 (AccelStepper::DRIVER, STEP_PIN_PUMPE8,  DIR_PIN_PUMPE8);
+AccelStepper PUMPE9 (AccelStepper::DRIVER, STEP_PIN_PUMPE9,  DIR_PIN_PUMPE9);
 AccelStepper PUMPE10(AccelStepper::DRIVER, STEP_PIN_PUMPE10, DIR_PIN_PUMPE10);
 
 // ==============================
@@ -245,7 +246,7 @@ PumpTask activePump = { nullptr, 0 };
 
 struct BandTask {
   AccelStepper* motor;
-  unsigned long stopTime; // >0: Timer (Entladen), 0: Sensor-Modus (Beladen)
+  unsigned long stopTime; // >0: Timer (Entladen), 0: Sensor (Beladen)
 };
 BandTask activeBandTask = { nullptr, 0 };
 
@@ -288,27 +289,42 @@ void stepperCommonInit(AccelStepper& s, float vmax, float a) {
   s.setMinPulseWidth(5);
 }
 
-// Ultraschallsensor messen (HC-SR04)
-float getDistance_cm() {
-  digitalWrite(SR04_TRIG, LOW);
-  delayMicroseconds(2);
-  digitalWrite(SR04_TRIG, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(SR04_TRIG, LOW);
+// --- Port-basierte pulseIn für SR04_ECHO (pins.h) ---
+static inline unsigned long pulseInEchoHigh_timeout(uint32_t timeout_us) {
+  const uint32_t start = micros();
 
-  long duration = pulseIn(SR04_ECHO, HIGH, 10000); // 10 ms Timeout
-  if (duration == 0) return -1.0;
+  while (PIN_READ(SR04_ECHO)) {
+    if ((uint32_t)(micros() - start) > timeout_us) return 0;
+  }
+  while (!PIN_READ(SR04_ECHO)) {
+    if ((uint32_t)(micros() - start) > timeout_us) return 0;
+  }
 
-  return duration / 58.0; // µs -> cm
+  const uint32_t t0 = micros();
+  while (PIN_READ(SR04_ECHO)) {
+    if ((uint32_t)(micros() - start) > timeout_us) return 0;
+  }
+  return (unsigned long)(micros() - t0);
 }
 
-// Hilfsfunktion: kontinuierliche Fahrt mit Rampe (großes Ziel)
+// Ultraschallsensor messen (HC-SR04) über pins.h
+float getDistance_cm() {
+  PIN_LOW(SR04_TRIG);
+  delayMicroseconds(2);
+  PIN_HIGH(SR04_TRIG);
+  delayMicroseconds(10);
+  PIN_LOW(SR04_TRIG);
+
+  unsigned long duration = pulseInEchoHigh_timeout(10000UL);
+  if (duration == 0) return -1.0f;
+  return (float)duration / 58.0f;
+}
+
 void startContinuousMove(AccelStepper& m, bool forward) {
   long target = m.currentPosition() + (forward ? CONTINUOUS_STEPS : -CONTINUOUS_STEPS);
   m.moveTo(target);
 }
 
-// Hilfsfunktion: sanft anhalten (per stop(), run() kümmert sich dann um Bremsrampe)
 void requestSmoothStop(AccelStepper* m) {
   if (!m) return;
   m->stop();
@@ -317,73 +333,58 @@ void requestSmoothStop(AccelStepper* m) {
 // ---- Bewegungs-API ----
 void fahren(long units) {
   busy = true;
-  PLF.moveTo(unitsToSteps((int)units));  // PLF hat sowieso Rampe via run()
+  PLF.moveTo(unitsToSteps((int)units));
 }
 
 void entladen() {
   float band_max_speed = max_speed[1];
 
-  // Pumpe stoppen (sanft)
   if (activePump.motor != nullptr) {
     requestSmoothStop(activePump.motor);
     activePump.motor = nullptr;
     activePump.stopTime = 0;
   }
 
-  // Band ggf. stoppen (alter Task)
   if (activeBandTask.motor != nullptr) {
     requestSmoothStop(activeBandTask.motor);
-    // wir überscheiben den Task gleich mit neuem Entlade-Task
   }
 
-  // Band rückwärts laufen lassen (mit Rampe)
   BAND.setMaxSpeed(band_max_speed);
   BAND.setAcceleration(accel_sps2[1]);
-  startContinuousMove(BAND, false); // false = rückwärts
+  startContinuousMove(BAND, false);
 
-  // Timer-Modus aktivieren
   activeBandTask.motor    = &BAND;
   activeBandTask.stopTime = millis() + BAND_TIMEOUT_MS;
 
-  // PLF sanft stoppen, falls er gerade fährt
   PLF.stop();
-
   busy = true;
 }
 
 void beladen() {
   float band_max_speed = max_speed[1];
 
-  // Pumpe stoppen (sanft)
   if (activePump.motor != nullptr) {
     requestSmoothStop(activePump.motor);
     activePump.motor = nullptr;
     activePump.stopTime = 0;
   }
 
-  // Band ggf. stoppen (alter Task)
   if (activeBandTask.motor != nullptr) {
     requestSmoothStop(activeBandTask.motor);
   }
 
-  // Band vorwärts laufen lassen (mit Rampe)
   BAND.setMaxSpeed(band_max_speed);
   BAND.setAcceleration(accel_sps2[1]);
-  startContinuousMove(BAND, true); // true = vorwärts
+  startContinuousMove(BAND, true);
 
-  // Sensor-Modus aktivieren (stopTime = 0)
   activeBandTask.motor    = &BAND;
   activeBandTask.stopTime = 0;
 
-  // PLF sanft stoppen
   PLF.stop();
-
   busy = true;
 }
 
 bool home() {
-  // HOMING bleibt wie bisher: direktes runSpeed() ohne "sanftes" Anfahren,
-  // dafür sanftes Abbremsen am Ende.
   busy = true;
   const float HOME_SPEED     = -400.0f;
   const float HOME_ACCEL     =  8000.0f;
@@ -399,8 +400,8 @@ bool home() {
   PLF.setSpeed(HOME_SPEED);
 
   unsigned long t0 = millis();
-  while (digitalRead(HOME_PIN) == HIGH) {
-    PLF.runSpeed();  // ohne Rampe anfahren
+  while (PIN_READ(HOME)) { // Pullup -> HIGH = offen
+    PLF.runSpeed();
     if (millis() - t0 > TIMEOUT_MS) {
       PLF.setMaxSpeed(oldMax);
       PLF.setAcceleration(oldAcc);
@@ -410,7 +411,7 @@ bool home() {
   }
 
   PLF.stop();
-  while (PLF.isRunning()) PLF.run(); // sanft abbremsen
+  while (PLF.isRunning()) PLF.run();
 
   PLF.move(BACKOFF_STEPS);
   while (PLF.distanceToGo() != 0) PLF.run();
@@ -427,14 +428,12 @@ void pumpe() {
 
   uint8_t pump_id    = pumpe_id_i2c;
   long    duration_s = zeit_sek_i2c;
-  int     motor_array_index = pump_id + 1; // pump_id 1 -> MOT[2], usw.
+  int     motor_array_index = pump_id + 1;
 
-  // gültige Pumpen IDs 1..10
   if (pump_id >= 1 && pump_id <= 10) {
     AccelStepper* motor = MOT[motor_array_index];
     float speed = max_speed[motor_array_index];
 
-    // Falls vorher eine andere Pumpe lief: sanft stoppen
     if (activePump.motor != nullptr && activePump.motor != motor) {
       requestSmoothStop(activePump.motor);
       activePump.motor = nullptr;
@@ -442,24 +441,19 @@ void pumpe() {
     }
 
     if (duration_s > 0) {
-      // Start der Pumpe mit Rampe
       motor->setMaxSpeed(speed);
       motor->setAcceleration(accel_sps2[motor_array_index]);
-      startContinuousMove(*motor, true);  // Richtung vorwärts
+      startContinuousMove(*motor, true);
 
       activePump.motor    = motor;
       activePump.stopTime = millis() + (duration_s * 1000UL);
-
     } else {
-      // dauer == 0 -> explizit stoppen (sanft)
       requestSmoothStop(motor);
       activePump.motor    = nullptr;
       activePump.stopTime = 0;
       busy = false;
     }
-
   } else {
-    // ungültige Pumpen-ID
     busy = false;
   }
 }
@@ -477,7 +471,6 @@ void onI2CReceive(int count) {
   aufgabe_i2c = cmd;
   last_cmd    = cmd;
 
-  // Parameter je nach Kommando lesen
   if (cmd == CMD_FAHR && count >= 3) {
     uint8_t low  = 0;
     uint8_t high = 0;
@@ -524,7 +517,6 @@ void onI2CRequest() {
     return;
   }
 
-  // ACK für alle anderen Kommandos
   const uint8_t ack = 0x06;
   Wire.write(&ack, 1);
 }
@@ -533,56 +525,51 @@ void onI2CRequest() {
 //         Setup / Loop
 // ==============================
 void setup() {
-  // I2C Slave
   Wire.begin(I2C_ADDR);
   Wire.onReceive(onI2CReceive);
   Wire.onRequest(onI2CRequest);
 
-  // UART zu den TMC2209 Treibern
   SERIAL_PORT.begin(57600);
   SERIAL_PORT_2.begin(57600);
   SERIAL_PORT_3.begin(57600);
 
-  // EN der Treiber
-  pinMode(EN_PIN, OUTPUT);
-  digitalWrite(EN_PIN, HIGH); // HIGH = Treiber bei Start deaktiviert
+  pinMode(EN_PIN_NUM, OUTPUT);
+  digitalWrite(EN_PIN_NUM, HIGH); // deaktiviert
 
-  // Sensor-Pins
-  pinMode(HOME_PIN, INPUT_PULLUP);
-  pinMode(SR04_TRIG, OUTPUT);
-  pinMode(SR04_ECHO, INPUT);
+  // HOME: X1_4 (Pullup)
+  PIN_INPUT(HOME);
+  PIN_PULLUP_ON(HOME);
 
-  // alle Stepper + Treiber konfigurieren
+  // SR04: TRIG = X1_3, ECHO = X1_2
+  PIN_OUTPUT(SR04_TRIG);
+  PIN_LOW(SR04_TRIG);
+  PIN_INPUT(SR04_ECHO);
+
   for (int i = 0; i < 12; ++i) {
     driverCommonInit(*DRV[i], steps_u[i], current_mA[i], ihold_vals[i]);
     stepperCommonInit(*MOT[i],  max_speed[i], accel_sps2[i]);
     MOT[i]->setSpeed(0);
-    MOT[i]->moveTo(MOT[i]->currentPosition()); // distanceToGo = 0
+    MOT[i]->moveTo(MOT[i]->currentPosition());
   }
-  digitalWrite(EN_PIN, LOW); // LOW = Treiber werden nach Konfig aktiviert
+
+  digitalWrite(EN_PIN_NUM, LOW); // aktiv
 }
 
 void loop() {
-  // 1. PLF bewegen (Zielposition fahren) mit Rampe
   PLF.run();
 
-  // Wenn PLF fertig und weder Band noch Pumpe aktiv sind -> busy false
   if (PLF.distanceToGo() == 0 && PLF.speed() == 0 &&
       activeBandTask.motor == nullptr &&
       activePump.motor == nullptr) {
     busy = false;
   }
 
-  // 2. Bandtask abarbeiten (Timer oder Sensor) mit Rampe
   if (activeBandTask.motor != nullptr) {
     activeBandTask.motor->run();
 
     if (activeBandTask.stopTime > 0) {
-      // Timer-Modus (ENTLADEN)
       if (millis() >= activeBandTask.stopTime) {
-        // Sanft stoppen einleiten
         requestSmoothStop(activeBandTask.motor);
-        // Wenn vollständig gestoppt: Task beenden
         if (activeBandTask.motor->distanceToGo() == 0 &&
             activeBandTask.motor->speed() == 0) {
           activeBandTask.motor    = nullptr;
@@ -591,19 +578,16 @@ void loop() {
         }
       }
     } else {
-      // Sensor-Modus (BELADEN)
       static unsigned long lastMeasureMs = 0;
       const unsigned long MEASURE_INTERVAL_MS = 100;
       if (millis() - lastMeasureMs >= MEASURE_INTERVAL_MS) {
         lastMeasureMs = millis();
         float dist = getDistance_cm();
         if (dist > 0 && dist <= DISTANCE_THRESHOLD_CM) {
-          // Objekt erkannt -> sanft stoppen
           requestSmoothStop(activeBandTask.motor);
         }
       }
 
-      // Wenn gestoppt -> Task beenden
       if (activeBandTask.motor->distanceToGo() == 0 &&
           activeBandTask.motor->speed() == 0) {
         activeBandTask.motor    = nullptr;
@@ -613,14 +597,11 @@ void loop() {
     }
   }
 
-  // 3. Pumpentask abarbeiten (mit Rampe)
   if (activePump.motor != nullptr) {
     activePump.motor->run();
 
     if (millis() >= activePump.stopTime) {
-      // Sanft stoppen einleiten
       requestSmoothStop(activePump.motor);
-      // Wenn vollständig gestoppt -> Task beenden
       if (activePump.motor->distanceToGo() == 0 &&
           activePump.motor->speed() == 0) {
         activePump.motor    = nullptr;
@@ -630,7 +611,6 @@ void loop() {
     }
   }
 
-  // 4. Neue I2C-Kommandos anwenden
   if (new_message) {
     noInterrupts();
     uint8_t cmd = aufgabe_i2c;
@@ -641,7 +621,7 @@ void loop() {
     switch (cmd) {
       case CMD_FAHR:     fahren(par);    break;
       case CMD_HOME:     (void)home();   break;
-      case CMD_STATUS:   /* wird in onI2CRequest beantwortet */ break;
+      case CMD_STATUS:   break;
       case CMD_PUMPE:    pumpe();        break;
       case CMD_ENTLADEN: entladen();     break;
       case CMD_BELADEN:  beladen();      break;
