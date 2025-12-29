@@ -8,17 +8,18 @@
 // ==============================
 //         Konfiguration
 // ==============================
-static const long STEPS_PER_UNIT = 400;         // konstante für umrechnung Abstand (Units) -> Steps für Schlitten
-volatile bool busy = false;                     // Variable für Status Beschäftigt
-volatile bool homing_active = false;            // <--- NEU: Homing läuft gerade
-const unsigned long BAND_TIMEOUT_MS = 10000UL;  // Zeit in ms bis das Förderband im Entladen-Timeout stoppt
-const int DISTANCE_THRESHOLD_CM = 5;            // Abstand beim Sensor das ein Glas erkannt wird
-const long CONTINUOUS_STEPS = 100000000L;
+// DU SENDESST POSITIONEN IN mm (int16) vom Master
+static const long STEPS_PER_MM = 2;              // <-- Vorgabe: 2 Steps pro mm
+volatile bool busy = false;
+volatile bool homing_active = false;
+
+const unsigned long BAND_TIMEOUT_MS = 10000UL;   // Entladen: max Laufzeit Band
+const int DISTANCE_THRESHOLD_CM = 5;             // Glas erkannt wenn <= X cm
+const long CONTINUOUS_STEPS = 100000000L;        // "quasi endlos" Ziel
 
 // ==============================
 //         Motor Parameter
 // ==============================
-// Maximale Geschwindigkeit für Stepper (steps/s)
 float max_speed[12] = {
   60000.0f,  // PLF
   10000.0f,  // BAND
@@ -34,7 +35,6 @@ float max_speed[12] = {
   30000.0f   // P10
 };
 
-// Beschleunigung (steps/s^2)
 float accel_sps2[12] = {
   30000.0f,  // PLF
   10000.0f,  // BAND
@@ -50,7 +50,7 @@ float accel_sps2[12] = {
   10000.0f   // P10
 };
 
-// Haltestrom (IHOLD 0..31)
+// IHOLD (0..31)
 uint8_t ihold_vals[12] = {
   29,  // PLF
   15,  // BAND
@@ -66,7 +66,6 @@ uint8_t ihold_vals[12] = {
   1    // P10
 };
 
-// Microsteps
 const int steps_u[12] = {
   4,   // PLF
   16,  // BAND
@@ -82,20 +81,19 @@ const int steps_u[12] = {
   4    // P10
 };
 
-// Strom (mA RMS)
 const int current_mA[12] = {
-  1200,  //PLF
-  1200,  //BAND
-  1200,  //P1
-  1200,  //P2
-  1200,  //P3
-  1200,  //P4
-  1200,  //P5
-  1200,  //P6
-  1200,  //P7
-  1200,  //P8
-  1200,  //P9
-  1200   //P10
+  1200,  // PLF
+  1200,  // BAND
+  1200,  // P1
+  1200,  // P2
+  1200,  // P3
+  1200,  // P4
+  1200,  // P5
+  1200,  // P6
+  1200,  // P7
+  1200,  // P8
+  1200,  // P9
+  1200   // P10
 };
 
 // ==============================
@@ -116,8 +114,8 @@ enum : uint8_t {
 #define SERIAL_PORT    Serial1
 #define SERIAL_PORT_2  Serial2
 #define SERIAL_PORT_3  Serial3
-#define R_SENSE        0.11f   // interner Shunt
-#define I2C_ADDR       0x13    // Slave Adresse
+#define R_SENSE        0.11f
+#define I2C_ADDR       0x13
 
 // UART-Adressen (TMC2209 adressen)
 #define ADDR_PLF       0b00
@@ -240,14 +238,14 @@ TMC2209Stepper* DRV[] = {
 struct PumpTask {
   AccelStepper* motor;
   unsigned long stopTime;
-  bool stopping;                // stop() wurde schon ausgelöst
+  bool stopping;
 };
 PumpTask activePump = { nullptr, 0, false };
 
 struct BandTask {
   AccelStepper* motor;
-  unsigned long stopTime;       // >0: Timer (Entladen), 0: Sensor (Beladen)
-  bool stopping;                // stop() wurde schon ausgelöst
+  unsigned long stopTime; // >0: Timer (Entladen), 0: Sensor (Beladen)
+  bool stopping;
 };
 BandTask activeBandTask = { nullptr, 0, false };
 
@@ -255,7 +253,7 @@ BandTask activeBandTask = { nullptr, 0, false };
 //         I2C-Variablen
 // ==============================
 volatile uint8_t  aufgabe_i2c  = 0;
-volatile int16_t  par_generic  = 0;
+volatile int16_t  par_generic  = 0;      // <-- hier steht beim FAHR die mm-Position
 volatile uint8_t  pumpe_id_i2c = 0;
 volatile uint8_t  zeit_sek_i2c = 0;
 volatile bool     new_message  = false;
@@ -264,13 +262,10 @@ volatile uint8_t  last_cmd     = 0;
 // ==============================
 //         Helper-Funktionen
 // ==============================
-
-// Umrechnung Abstand zu Steps
-inline long unitsToSteps(int units) {
-  return (long)units * (long)STEPS_PER_UNIT;
+inline long mmToSteps(int mm) {
+  return (long)mm * (long)STEPS_PER_MM;
 }
 
-// Treiber initialisierung
 void driverCommonInit(TMC2209Stepper& d, int microsteps, int current_mA, uint8_t ihold_val) {
   d.begin();
   d.pdn_disable(true);
@@ -282,7 +277,6 @@ void driverCommonInit(TMC2209Stepper& d, int microsteps, int current_mA, uint8_t
   d.I_scale_analog(false);
   d.vsense(true);
 
-  // Erst Run-Strom in mA setzen, dann Hold-Wert explizit setzen
   d.rms_current(current_mA);
   d.ihold(ihold_val);
   d.iholddelay(0);
@@ -312,7 +306,6 @@ static inline unsigned long pulseInEchoHigh_timeout(uint32_t timeout_us) {
   return (unsigned long)(micros() - t0);
 }
 
-// Ultraschallsensor messen (HC-SR04) über pins.h
 float getDistance_cm() {
   PIN_LOW(SR04_TRIG);
   delayMicroseconds(2);
@@ -332,24 +325,21 @@ void startContinuousMove(AccelStepper& m, bool forward) {
 
 void requestSmoothStop(AccelStepper* m) {
   if (!m) return;
-  m->stop(); // AccelStepper: weiches Abbremsen
+  m->stop();
 }
 
 // ==============================
 //         Bewegungsfunktionen
 // ==============================
-
-// Schlitten fahren
-void fahren(long units) {
+void fahren_mm(long mm) {
   busy = true;
-  PLF.moveTo(unitsToSteps((int)units));
+  // Master sendet int16 mm -> wir fahren absolute Position in mm
+  PLF.moveTo(mmToSteps((int)mm));
 }
 
-// Band entladen (Timer)
 void entladen() {
   float band_max_speed = max_speed[1];
 
-  // Pumpe stoppen falls aktiv
   if (activePump.motor != nullptr) {
     requestSmoothStop(activePump.motor);
     activePump.motor = nullptr;
@@ -357,7 +347,6 @@ void entladen() {
     activePump.stopping = false;
   }
 
-  // Bandtask ggf. stoppen
   if (activeBandTask.motor != nullptr) {
     requestSmoothStop(activeBandTask.motor);
   }
@@ -367,18 +356,16 @@ void entladen() {
   startContinuousMove(BAND, false);
 
   activeBandTask.motor    = &BAND;
-  activeBandTask.stopTime = millis() + BAND_TIMEOUT_MS;  // Timer-Modus
+  activeBandTask.stopTime = millis() + BAND_TIMEOUT_MS;
   activeBandTask.stopping = false;
 
   PLF.stop();
   busy = true;
 }
 
-// Band beladen (Sensor)
 void beladen() {
   float band_max_speed = max_speed[1];
 
-  // Pumpe stoppen falls aktiv
   if (activePump.motor != nullptr) {
     requestSmoothStop(activePump.motor);
     activePump.motor = nullptr;
@@ -386,7 +373,6 @@ void beladen() {
     activePump.stopping = false;
   }
 
-  // Bandtask ggf. stoppen
   if (activeBandTask.motor != nullptr) {
     requestSmoothStop(activeBandTask.motor);
   }
@@ -403,7 +389,6 @@ void beladen() {
   busy = true;
 }
 
-// Home
 bool home() {
   busy = true;
   homing_active = true;
@@ -433,6 +418,7 @@ bool home() {
 
   PLF.setSpeed(0);
   PLF.moveTo(PLF.currentPosition());
+
   PLF.setCurrentPosition(0);
 
   PLF.setMaxSpeed(oldMax);
@@ -443,19 +429,19 @@ bool home() {
   return true;
 }
 
-// Pumpe starten/stoppen
 void pumpe() {
   busy = true;
 
   uint8_t pump_id    = pumpe_id_i2c;
   long    duration_s = zeit_sek_i2c;
-  int     motor_array_index = pump_id + 1; // Achtung: index: 0=PLF,1=BAND,2=P1... => pump_id(1)->2
+
+  // MOT: 0=PLF, 1=BAND, 2=P1... => pump_id 1..10 -> index 2..11
+  int motor_array_index = (int)pump_id + 1;
 
   if (pump_id >= 1 && pump_id <= 10) {
     AccelStepper* motor = MOT[motor_array_index];
     float speed = max_speed[motor_array_index];
 
-    // Falls andere Pumpe aktiv -> stoppen
     if (activePump.motor != nullptr && activePump.motor != motor) {
       requestSmoothStop(activePump.motor);
       activePump.motor = nullptr;
@@ -472,7 +458,6 @@ void pumpe() {
       activePump.stopTime = millis() + (duration_s * 1000UL);
       activePump.stopping = false;
     } else {
-      // duration_s == 0 => Stop
       requestSmoothStop(motor);
       activePump.motor = nullptr;
       activePump.stopTime = 0;
@@ -498,20 +483,13 @@ void onI2CReceive(int count) {
   last_cmd    = cmd;
 
   if (cmd == CMD_FAHR) {
-    // Unterstützt 3 Bytes (int16) ODER 2 Bytes (int8)
+    // Master sendet IMMER 3 Bytes: [CMD_FAHR, low, high] => int16 little endian (mm)
     if (count >= 3 && Wire.available() >= 2) {
       uint8_t low  = Wire.read();
       uint8_t high = Wire.read();
       par_generic = (int16_t)((uint16_t)low | ((uint16_t)high << 8));
-      while (Wire.available()) (void)Wire.read();
-    } else if (count >= 2 && Wire.available() >= 1) {
-      uint8_t b = Wire.read();
-      par_generic = (int16_t)((int8_t)b);
-      while (Wire.available()) (void)Wire.read();
-    } else {
-      while (Wire.available()) (void)Wire.read();
     }
-
+    while (Wire.available()) (void)Wire.read();
     new_message = true;
     return;
   }
@@ -530,12 +508,11 @@ void onI2CReceive(int count) {
   new_message = true;
 }
 
-// Status Antwort passend zum Master: [busy, band, pos_low, pos_high, homing]
+// Status passend zum Master: [busy, band, pos_low, pos_high, homing]
 void onI2CRequest() {
   if (last_cmd == CMD_STATUS) {
     uint8_t out[5];
 
-    // busy wenn irgendwas läuft
     bool current_busy = busy;
     if (!current_busy) {
       current_busy =
@@ -544,25 +521,22 @@ void onI2CRequest() {
         (activePump.motor != nullptr);
     }
 
-    // band=1 wenn Beladen (Sensor-Modus) aktiv
     bool band_active = (activeBandTask.motor != nullptr) && (activeBandTask.stopTime == 0);
 
-    // Position als int16 in Units (Master sendet auch Units)
+    // Position in mm (int16), weil Master mm schickt
     long pos_steps = PLF.currentPosition();
-    long pos_units_long = pos_steps / STEPS_PER_UNIT;
+    long pos_mm_long = pos_steps / STEPS_PER_MM;
 
-    if (pos_units_long > 32767) pos_units_long = 32767;
-    if (pos_units_long < -32768) pos_units_long = -32768;
+    if (pos_mm_long > 32767) pos_mm_long = 32767;
+    if (pos_mm_long < -32768) pos_mm_long = -32768;
+    int16_t pos_mm = (int16_t)pos_mm_long;
 
-    int16_t pos_units = (int16_t)pos_units_long;
-
-    // homing: 1 = ok/ready, 0 = homing läuft
     uint8_t homing_ok = homing_active ? 0 : 1;
 
     out[0] = current_busy ? 1 : 0;
     out[1] = band_active ? 1 : 0;
-    out[2] = (uint8_t)(pos_units & 0xFF);
-    out[3] = (uint8_t)((pos_units >> 8) & 0xFF);
+    out[2] = (uint8_t)(pos_mm & 0xFF);
+    out[3] = (uint8_t)((pos_mm >> 8) & 0xFF);
     out[4] = homing_ok;
 
     Wire.write(out, 5);
@@ -626,10 +600,9 @@ void loop() {
     if (activeBandTask.stopTime > 0) {
       // Timer-Modus (Entladen)
       if (!activeBandTask.stopping && millis() >= activeBandTask.stopTime) {
-        activeBandTask.motor->stop();        // stop() NUR EINMAL
+        activeBandTask.motor->stop(); // stop() NUR EINMAL
         activeBandTask.stopping = true;
       }
-
       if (activeBandTask.stopping && activeBandTask.motor->distanceToGo() == 0) {
         activeBandTask.motor = nullptr;
         activeBandTask.stopTime = 0;
@@ -645,11 +618,10 @@ void loop() {
         lastMeasureMs = millis();
         float dist = getDistance_cm();
         if (dist > 0 && dist <= DISTANCE_THRESHOLD_CM) {
-          activeBandTask.motor->stop();      // stop() NUR EINMAL
+          activeBandTask.motor->stop(); // stop() NUR EINMAL
           activeBandTask.stopping = true;
         }
       }
-
       if (activeBandTask.stopping && activeBandTask.motor->distanceToGo() == 0) {
         activeBandTask.motor = nullptr;
         activeBandTask.stopTime = 0;
@@ -686,12 +658,12 @@ void loop() {
   if (new_message) {
     noInterrupts();
     uint8_t cmd = aufgabe_i2c;
-    int16_t par = par_generic;
+    int16_t mm  = par_generic;
     new_message = false;
     interrupts();
 
     switch (cmd) {
-      case CMD_FAHR:     fahren(par);   break;
+      case CMD_FAHR:     fahren_mm(mm); break;
       case CMD_HOME:     (void)home();  break;
       case CMD_STATUS:   break;
       case CMD_PUMPE:    pumpe();       break;
