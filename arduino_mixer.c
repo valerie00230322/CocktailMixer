@@ -8,16 +8,16 @@
 // ==============================
 //         Konfiguration
 // ==============================
-static const long STEPS_PER_UNIT = 400;         //konstante für umrechnung Abstand zu Steps für Schlitten
-volatile bool busy = false;                     //Variable für Status Beschäftigt
-const unsigned long BAND_TIMEOUT_MS = 10000UL;  // Zeit in ms bis das Förderband in das Timout beim beladen fährt
-const int DISTANCE_THRESHOLD_CM = 5;            // Abstand beim Sensor das ein Glas erkannt wird
+static const long STEPS_PER_UNIT = 400;         // konstante für umrechnung Abstand zu Steps für Schlitten
+volatile bool busy = false;                     // Variable für Status Beschäftigt
+const unsigned long BAND_TIMEOUT_MS = 10000UL;  // Zeit in ms bis das Förderband in das Timeout beim entladen fährt
+const int DISTANCE_THRESHOLD_CM = 5;            // Abstand beim Sensor, dass ein Glas erkannt wird
 const long CONTINUOUS_STEPS = 100000000L;
 
 // ==============================
 //         Motor Parameter
 // ==============================
-//Maximale Geschwindichkeit für Stepper
+// Maximale Geschwindigkeit für Stepper (steps/s)
 float max_speed[12] = {
   60000.0f,  // PLF
   10000.0f,  // BAND
@@ -32,7 +32,8 @@ float max_speed[12] = {
   30000.0f,  // P9
   30000.0f   // P10
 };
-//Beschläunigung der Stepper
+
+// Beschleunigung (steps/s^2)
 float accel_sps2[12] = {
   30000.0f,  // PLF
   10000.0f,  // BAND
@@ -47,7 +48,8 @@ float accel_sps2[12] = {
   10000.0f,  // P9
   10000.0f   // P10
 };
-//Haltestrom
+
+// Haltestrom (IHOLD 0..31)
 uint8_t ihold_vals[12] = {
   29,  // PLF
   15,  // BAND
@@ -62,7 +64,8 @@ uint8_t ihold_vals[12] = {
   1,   // P9
   1    // P10
 };
-//Microsteps
+
+// Microsteps
 const int steps_u[12] = {
   4,   // PLF
   16,  // BAND
@@ -77,139 +80,140 @@ const int steps_u[12] = {
   4,   // P9
   4    // P10
 };
-//Maximal Strom
+
+// Strom (mA RMS)
 const int current_mA[12] = {
-  1200,  //PLF
-  1200,  //BAND
-  1200,  //P1
-  1200,  //P2
-  1200,  //P3
-  1200,  //P4
-  1200,  //P5
-  1200,  //P6
-  1200,  //P7
-  1200,  //P8
-  1200,  //P9
-  1200   //P10
+  1200,  // PLF
+  1200,  // BAND
+  1200,  // P1
+  1200,  // P2
+  1200,  // P3
+  1200,  // P4
+  1200,  // P5
+  1200,  // P6
+  1200,  // P7
+  1200,  // P8
+  1200,  // P9
+  1200   // P10
 };
 
 // ==============================
 //         Befehls-Codes
 // ==============================
 enum : uint8_t {
-  CMD_FAHR = 0,
-  CMD_HOME = 1,
-  CMD_STATUS = 2,
-  CMD_PUMPE = 3,
-  CMD_BELADEN = 4,
+  CMD_FAHR     = 0,
+  CMD_HOME     = 1,
+  CMD_STATUS   = 2,
+  CMD_PUMPE    = 3,
+  CMD_BELADEN  = 4,
   CMD_ENTLADEN = 5
 };
 
 // ==============================
 //         Hardware-Setup
 // ==============================
-#define SERIAL_PORT Serial1
-#define SERIAL_PORT_2 Serial2
-#define SERIAL_PORT_3 Serial3
-#define R_SENSE 0.11f //interner Schandwiderstand der TMC2209
-#define I2C_ADDR 0x13 //Slave Adresse
+#define SERIAL_PORT    Serial1
+#define SERIAL_PORT_2  Serial2
+#define SERIAL_PORT_3  Serial3
+#define R_SENSE        0.11f   // interner Shunt
+#define I2C_ADDR       0x13    // Slave Adresse
 
 // UART-Adressen (TMC2209 adressen)
-#define ADDR_PLF 0b00
-#define ADDR_BAND 0b01
-#define ADDR_PUMPE1 0b10
-#define ADDR_PUMPE2 0b11
-#define ADDR_PUMPE3 0b00
-#define ADDR_PUMPE4 0b01
-#define ADDR_PUMPE5 0b10
-#define ADDR_PUMPE6 0b11
-#define ADDR_PUMPE7 0b00
-#define ADDR_PUMPE8 0b01
-#define ADDR_PUMPE9 0b10
-#define ADDR_PUMPE10 0b11
+#define ADDR_PLF       0b00
+#define ADDR_BAND      0b01
+#define ADDR_PUMPE1    0b10
+#define ADDR_PUMPE2    0b11
+#define ADDR_PUMPE3    0b00
+#define ADDR_PUMPE4    0b01
+#define ADDR_PUMPE5    0b10
+#define ADDR_PUMPE6    0b11
+#define ADDR_PUMPE7    0b00
+#define ADDR_PUMPE8    0b01
+#define ADDR_PUMPE9    0b10
+#define ADDR_PUMPE10   0b11
 
 // ============================================================
 // Motor STEP/DIR Arduino-Pinnummern
 // ============================================================
 // PLF: PB5 / PA0
 static const uint8_t STEP_PIN_PLF = 11;  // PB5
-static const uint8_t DIR_PIN_PLF = 22;   // PA0
+static const uint8_t DIR_PIN_PLF  = 22;  // PA0
 
 // BAND: PB6 / PA1
-static const uint8_t STEP_PIN_BAND = 12;  // PB6
-static const uint8_t DIR_PIN_BAND = 23;   // PA1
+static const uint8_t STEP_PIN_BAND = 12; // PB6
+static const uint8_t DIR_PIN_BAND  = 23; // PA1
 
 // P1: PB7 / PA2
-static const uint8_t STEP_PIN_PUMPE1 = 13;  // PB7
-static const uint8_t DIR_PIN_PUMPE1 = 24;   // PA2
+static const uint8_t STEP_PIN_PUMPE1 = 13; // PB7
+static const uint8_t DIR_PIN_PUMPE1  = 24; // PA2
 
 // P2 STEP = X4_1 (PE0 / Arduino Pin 0)
 static const uint8_t STEP_PIN_PUMPE2 = 0;  // X4_1 = PE0
-static const uint8_t DIR_PIN_PUMPE2 = 25;  // PA3
+static const uint8_t DIR_PIN_PUMPE2  = 25; // PA3
 
 // P3 STEP = X4_2 (PE1 / Arduino Pin 1)
 static const uint8_t STEP_PIN_PUMPE3 = 1;  // X4_2 = PE1
-static const uint8_t DIR_PIN_PUMPE3 = 26;  // PA4
+static const uint8_t DIR_PIN_PUMPE3  = 26; // PA4
 
 // P4 STEP = X4_4 (PE3 / Arduino Pin 5)
 static const uint8_t STEP_PIN_PUMPE4 = 5;  // X4_4 = PE3
-static const uint8_t DIR_PIN_PUMPE4 = 27;  // PA5
+static const uint8_t DIR_PIN_PUMPE4  = 27; // PA5
 
 // P5: PH3 / PA6
 static const uint8_t STEP_PIN_PUMPE5 = 6;  // PH3
-static const uint8_t DIR_PIN_PUMPE5 = 28;  // PA6
+static const uint8_t DIR_PIN_PUMPE5  = 28; // PA6
 
 // P6: PH4 / PA7
 static const uint8_t STEP_PIN_PUMPE6 = 7;  // PH4
-static const uint8_t DIR_PIN_PUMPE6 = 29;  // PA7
+static const uint8_t DIR_PIN_PUMPE6  = 29; // PA7
 
 // P7: PH5 / PC0
 static const uint8_t STEP_PIN_PUMPE7 = 8;  // PH5
-static const uint8_t DIR_PIN_PUMPE7 = 37;  // PC0
+static const uint8_t DIR_PIN_PUMPE7  = 37; // PC0
 
 // P8: PL3 / PC1
-static const uint8_t STEP_PIN_PUMPE8 = 46;  // PL3
-static const uint8_t DIR_PIN_PUMPE8 = 36;   // PC1
+static const uint8_t STEP_PIN_PUMPE8 = 46; // PL3
+static const uint8_t DIR_PIN_PUMPE8  = 36; // PC1
 
 // P9: PL4 / PC2
-static const uint8_t STEP_PIN_PUMPE9 = 45;  // PL4
-static const uint8_t DIR_PIN_PUMPE9 = 35;   // PC2
+static const uint8_t STEP_PIN_PUMPE9 = 45; // PL4
+static const uint8_t DIR_PIN_PUMPE9  = 35; // PC2
 
 // P10: PL5 / PC3
-static const uint8_t STEP_PIN_PUMPE10 = 44;  // PL5
-static const uint8_t DIR_PIN_PUMPE10 = 34;   // PC3
+static const uint8_t STEP_PIN_PUMPE10 = 44; // PL5
+static const uint8_t DIR_PIN_PUMPE10  = 34; // PC3
 
 // EN = PL6
-static const uint8_t EN_PIN_NUM = 43;  // PL6
+static const uint8_t EN_PIN_NUM = 43; // PL6
 
 // ==============================
 //         Objekte
 // ==============================
-TMC2209Stepper driver_plf(&SERIAL_PORT, R_SENSE, ADDR_PLF);
-TMC2209Stepper driver_band(&SERIAL_PORT, R_SENSE, ADDR_BAND);
-TMC2209Stepper driver_pumpe1(&SERIAL_PORT, R_SENSE, ADDR_PUMPE1);
-TMC2209Stepper driver_pumpe2(&SERIAL_PORT, R_SENSE, ADDR_PUMPE2);
-TMC2209Stepper driver_pumpe3(&SERIAL_PORT_2, R_SENSE, ADDR_PUMPE3);
-TMC2209Stepper driver_pumpe4(&SERIAL_PORT_2, R_SENSE, ADDR_PUMPE4);
-TMC2209Stepper driver_pumpe5(&SERIAL_PORT_2, R_SENSE, ADDR_PUMPE5);
-TMC2209Stepper driver_pumpe6(&SERIAL_PORT_2, R_SENSE, ADDR_PUMPE6);
-TMC2209Stepper driver_pumpe7(&SERIAL_PORT_3, R_SENSE, ADDR_PUMPE7);
-TMC2209Stepper driver_pumpe8(&SERIAL_PORT_3, R_SENSE, ADDR_PUMPE8);
-TMC2209Stepper driver_pumpe9(&SERIAL_PORT_3, R_SENSE, ADDR_PUMPE9);
-TMC2209Stepper driver_pumpe10(&SERIAL_PORT_3, R_SENSE, ADDR_PUMPE10);
+TMC2209Stepper driver_plf     (&SERIAL_PORT,   R_SENSE, ADDR_PLF);
+TMC2209Stepper driver_band    (&SERIAL_PORT,   R_SENSE, ADDR_BAND);
+TMC2209Stepper driver_pumpe1  (&SERIAL_PORT,   R_SENSE, ADDR_PUMPE1);
+TMC2209Stepper driver_pumpe2  (&SERIAL_PORT,   R_SENSE, ADDR_PUMPE2);
+TMC2209Stepper driver_pumpe3  (&SERIAL_PORT_2, R_SENSE, ADDR_PUMPE3);
+TMC2209Stepper driver_pumpe4  (&SERIAL_PORT_2, R_SENSE, ADDR_PUMPE4);
+TMC2209Stepper driver_pumpe5  (&SERIAL_PORT_2, R_SENSE, ADDR_PUMPE5);
+TMC2209Stepper driver_pumpe6  (&SERIAL_PORT_2, R_SENSE, ADDR_PUMPE6);
+TMC2209Stepper driver_pumpe7  (&SERIAL_PORT_3, R_SENSE, ADDR_PUMPE7);
+TMC2209Stepper driver_pumpe8  (&SERIAL_PORT_3, R_SENSE, ADDR_PUMPE8);
+TMC2209Stepper driver_pumpe9  (&SERIAL_PORT_3, R_SENSE, ADDR_PUMPE9);
+TMC2209Stepper driver_pumpe10 (&SERIAL_PORT_3, R_SENSE, ADDR_PUMPE10);
 
-AccelStepper PLF(AccelStepper::DRIVER, STEP_PIN_PLF, DIR_PIN_PLF);
-AccelStepper BAND(AccelStepper::DRIVER, STEP_PIN_BAND, DIR_PIN_BAND);
-AccelStepper PUMPE1(AccelStepper::DRIVER, STEP_PIN_PUMPE1, DIR_PIN_PUMPE1);
-AccelStepper PUMPE2(AccelStepper::DRIVER, STEP_PIN_PUMPE2, DIR_PIN_PUMPE2);
-AccelStepper PUMPE3(AccelStepper::DRIVER, STEP_PIN_PUMPE3, DIR_PIN_PUMPE3);
-AccelStepper PUMPE4(AccelStepper::DRIVER, STEP_PIN_PUMPE4, DIR_PIN_PUMPE4);
-AccelStepper PUMPE5(AccelStepper::DRIVER, STEP_PIN_PUMPE5, DIR_PIN_PUMPE5);
-AccelStepper PUMPE6(AccelStepper::DRIVER, STEP_PIN_PUMPE6, DIR_PIN_PUMPE6);
-AccelStepper PUMPE7(AccelStepper::DRIVER, STEP_PIN_PUMPE7, DIR_PIN_PUMPE7);
-AccelStepper PUMPE8(AccelStepper::DRIVER, STEP_PIN_PUMPE8, DIR_PIN_PUMPE8);
-AccelStepper PUMPE9(AccelStepper::DRIVER, STEP_PIN_PUMPE9, DIR_PIN_PUMPE9);
-AccelStepper PUMPE10(AccelStepper::DRIVER, STEP_PIN_PUMPE10, DIR_PIN_PUMPE10);
+AccelStepper PLF     (AccelStepper::DRIVER, STEP_PIN_PLF,     DIR_PIN_PLF);
+AccelStepper BAND    (AccelStepper::DRIVER, STEP_PIN_BAND,    DIR_PIN_BAND);
+AccelStepper PUMPE1  (AccelStepper::DRIVER, STEP_PIN_PUMPE1,  DIR_PIN_PUMPE1);
+AccelStepper PUMPE2  (AccelStepper::DRIVER, STEP_PIN_PUMPE2,  DIR_PIN_PUMPE2);
+AccelStepper PUMPE3  (AccelStepper::DRIVER, STEP_PIN_PUMPE3,  DIR_PIN_PUMPE3);
+AccelStepper PUMPE4  (AccelStepper::DRIVER, STEP_PIN_PUMPE4,  DIR_PIN_PUMPE4);
+AccelStepper PUMPE5  (AccelStepper::DRIVER, STEP_PIN_PUMPE5,  DIR_PIN_PUMPE5);
+AccelStepper PUMPE6  (AccelStepper::DRIVER, STEP_PIN_PUMPE6,  DIR_PIN_PUMPE6);
+AccelStepper PUMPE7  (AccelStepper::DRIVER, STEP_PIN_PUMPE7,  DIR_PIN_PUMPE7);
+AccelStepper PUMPE8  (AccelStepper::DRIVER, STEP_PIN_PUMPE8,  DIR_PIN_PUMPE8);
+AccelStepper PUMPE9  (AccelStepper::DRIVER, STEP_PIN_PUMPE9,  DIR_PIN_PUMPE9);
+AccelStepper PUMPE10 (AccelStepper::DRIVER, STEP_PIN_PUMPE10, DIR_PIN_PUMPE10);
 
 // ==============================
 //       Globale Helfer-Arrays
@@ -235,33 +239,37 @@ TMC2209Stepper* DRV[] = {
 struct PumpTask {
   AccelStepper* motor;
   unsigned long stopTime;
+  bool stopping;                // <--- NEU: stop() wurde schon ausgelöst
 };
-PumpTask activePump = { nullptr, 0 };
+PumpTask activePump = { nullptr, 0, false };
 
 struct BandTask {
   AccelStepper* motor;
-  unsigned long stopTime;  // >0: Timer (Entladen), 0: Sensor (Beladen)
+  unsigned long stopTime;       // >0: Timer (Entladen), 0: Sensor (Beladen)
+  bool stopping;                // <--- NEU: stop() wurde schon ausgelöst
 };
-BandTask activeBandTask = { nullptr, 0 };
+BandTask activeBandTask = { nullptr, 0, false };
 
 // ==============================
 //         I2C-Variablen
 // ==============================
-volatile uint8_t aufgabe_i2c = 0;
-volatile int16_t par_generic = 0;
-volatile uint8_t pumpe_id_i2c = 0;
-volatile uint8_t zeit_sek_i2c = 0;
-volatile bool new_message = false;
-volatile uint8_t last_cmd = 0;
+volatile uint8_t  aufgabe_i2c  = 0;
+volatile int16_t  par_generic  = 0;
+volatile uint8_t  pumpe_id_i2c = 0;
+volatile uint8_t  zeit_sek_i2c = 0;
+volatile bool     new_message  = false;
+volatile uint8_t  last_cmd     = 0;
 
 // ==============================
 //         Helper-Funktionen
 // ==============================
-//Umrechnung Abstand zu Steps
+
+// Umrechnung Abstand zu Steps
 inline long unitsToSteps(int units) {
   return (long)units * (long)STEPS_PER_UNIT;
 }
-//Treiber initalisierung
+
+// Treiber initialisierung
 void driverCommonInit(TMC2209Stepper& d, int microsteps, int current_mA, uint8_t ihold_val) {
   d.begin();
   d.pdn_disable(true);
@@ -272,10 +280,13 @@ void driverCommonInit(TMC2209Stepper& d, int microsteps, int current_mA, uint8_t
   d.pwm_autoscale(true);
   d.I_scale_analog(false);
   d.vsense(true);
+
+  // Wichtig: erst Run-Strom in mA setzen, dann Hold-Wert explizit setzen
   d.rms_current(current_mA);
   d.ihold(ihold_val);
   d.iholddelay(0);
 }
+
 void stepperCommonInit(AccelStepper& s, float vmax, float a) {
   s.setMaxSpeed(vmax);
   s.setAcceleration(a);
@@ -320,43 +331,61 @@ void startContinuousMove(AccelStepper& m, bool forward) {
 
 void requestSmoothStop(AccelStepper* m) {
   if (!m) return;
-  m->stop();
+  m->stop(); // AccelStepper: weiches Abbremsen
 }
 
-//Fahr funktion (Abstand wird in Funktion unitstoSteps berechnet)
+// ==============================
+//         Bewegungsfunktionen
+// ==============================
+
+// Fahr funktion (Abstand wird in Funktion unitsToSteps berechnet)
 void fahren(long units) {
   busy = true;
   PLF.moveTo(unitsToSteps((int)units));
 }
-//Entlade Funktion
+
+// Entlade Funktion (Timer)
 void entladen() {
   float band_max_speed = max_speed[1];
+
+  // Pumpe stoppen falls aktiv
   if (activePump.motor != nullptr) {
     requestSmoothStop(activePump.motor);
     activePump.motor = nullptr;
     activePump.stopTime = 0;
+    activePump.stopping = false;
   }
+
+  // Band-Task ggf. stoppen
   if (activeBandTask.motor != nullptr) {
     requestSmoothStop(activeBandTask.motor);
   }
+
   BAND.setMaxSpeed(band_max_speed);
   BAND.setAcceleration(accel_sps2[1]);
   startContinuousMove(BAND, false);
-  activeBandTask.motor = &BAND;
+
+  activeBandTask.motor    = &BAND;
   activeBandTask.stopTime = millis() + BAND_TIMEOUT_MS;
+  activeBandTask.stopping = false;
+
   PLF.stop();
   busy = true;
 }
-//belade Funktion
+
+// belade Funktion (Sensor)
 void beladen() {
   float band_max_speed = max_speed[1];
 
+  // Pumpe stoppen falls aktiv
   if (activePump.motor != nullptr) {
     requestSmoothStop(activePump.motor);
     activePump.motor = nullptr;
     activePump.stopTime = 0;
+    activePump.stopping = false;
   }
 
+  // Band-Task ggf. stoppen
   if (activeBandTask.motor != nullptr) {
     requestSmoothStop(activeBandTask.motor);
   }
@@ -365,14 +394,15 @@ void beladen() {
   BAND.setAcceleration(accel_sps2[1]);
   startContinuousMove(BAND, true);
 
-  activeBandTask.motor = &BAND;
-  activeBandTask.stopTime = 0;
+  activeBandTask.motor    = &BAND;
+  activeBandTask.stopTime = 0;     // Sensor-Modus
+  activeBandTask.stopping = false;
 
   PLF.stop();
   busy = true;
 }
 
-//home Funktion
+// home Funktion
 bool home() {
   busy = true;
 
@@ -397,9 +427,9 @@ bool home() {
       return false;
     }
   }
+
   PLF.setSpeed(0);
   PLF.moveTo(PLF.currentPosition());
-
   PLF.setCurrentPosition(0);
 
   PLF.setMaxSpeed(oldMax);
@@ -408,22 +438,25 @@ bool home() {
   busy = false;
   return true;
 }
-//Pumpen Funktion
+
+// Pumpen Funktion
 void pumpe() {
   busy = true;
 
-  uint8_t pump_id = pumpe_id_i2c;
-  long duration_s = zeit_sek_i2c;
-  int motor_array_index = pump_id + 1;
+  uint8_t pump_id    = pumpe_id_i2c;
+  long    duration_s = zeit_sek_i2c;
+  int     motor_array_index = pump_id + 1; // Achtung: Array: 0=PLF,1=BAND,2=P1... => pump_id(1) -> index 2
 
   if (pump_id >= 1 && pump_id <= 10) {
     AccelStepper* motor = MOT[motor_array_index];
     float speed = max_speed[motor_array_index];
 
+    // Falls andere Pumpe aktiv -> stoppen
     if (activePump.motor != nullptr && activePump.motor != motor) {
       requestSmoothStop(activePump.motor);
       activePump.motor = nullptr;
       activePump.stopTime = 0;
+      activePump.stopping = false;
     }
 
     if (duration_s > 0) {
@@ -431,12 +464,15 @@ void pumpe() {
       motor->setAcceleration(accel_sps2[motor_array_index]);
       startContinuousMove(*motor, true);
 
-      activePump.motor = motor;
+      activePump.motor    = motor;
       activePump.stopTime = millis() + (duration_s * 1000UL);
+      activePump.stopping = false;   // <--- wichtig
     } else {
+      // duration_s == 0 => Stop
       requestSmoothStop(motor);
       activePump.motor = nullptr;
       activePump.stopTime = 0;
+      activePump.stopping = false;
       busy = false;
     }
   } else {
@@ -455,11 +491,11 @@ void onI2CReceive(int count) {
 
   uint8_t cmd = Wire.read();
   aufgabe_i2c = cmd;
-  last_cmd = cmd;
+  last_cmd    = cmd;
 
   if (cmd == CMD_FAHR) {
     if (count >= 3 && Wire.available() >= 2) {
-      uint8_t low = Wire.read();
+      uint8_t low  = Wire.read();
       uint8_t high = Wire.read();
       par_generic = (int16_t)((uint16_t)low | ((uint16_t)high << 8));
       while (Wire.available()) (void)Wire.read();
@@ -488,7 +524,8 @@ void onI2CReceive(int count) {
   while (Wire.available()) (void)Wire.read();
   new_message = true;
 }
-//Status abfrage
+
+// Status abfrage
 void onI2CRequest() {
   if (last_cmd == CMD_STATUS) {
     uint8_t out[5];
@@ -527,7 +564,7 @@ void setup() {
   SERIAL_PORT_3.begin(57600);
 
   pinMode(EN_PIN_NUM, OUTPUT);
-  digitalWrite(EN_PIN_NUM, HIGH);  // deaktiviert
+  digitalWrite(EN_PIN_NUM, HIGH); // deaktiviert
 
   // HOME: X1_4 (Pullup)
   PIN_INPUT(HOME);
@@ -545,60 +582,86 @@ void setup() {
     MOT[i]->moveTo(MOT[i]->currentPosition());
   }
 
-  digitalWrite(EN_PIN_NUM, LOW);  // aktiv
+  digitalWrite(EN_PIN_NUM, LOW); // aktiv
 }
 
 void loop() {
   PLF.run();
-  //Sicherheitsabfrage ob was gemacht wird wenn nicht dann wird busy false gesetzt
-  if (PLF.distanceToGo() == 0 && PLF.speed() == 0 && activeBandTask.motor == nullptr && activePump.motor == nullptr) {
+
+  // Sicherheitsabfrage ob was gemacht wird; wenn nicht, busy=false
+  if (PLF.distanceToGo() == 0 && PLF.speed() == 0 &&
+      activeBandTask.motor == nullptr &&
+      activePump.motor == nullptr) {
     busy = false;
   }
 
+  // ==========================
+  // Band Task
+  // ==========================
   if (activeBandTask.motor != nullptr) {
     activeBandTask.motor->run();
 
     if (activeBandTask.stopTime > 0) {
-      if (millis() >= activeBandTask.stopTime) {
-        requestSmoothStop(activeBandTask.motor);
-        if (activeBandTask.motor->distanceToGo() == 0 && activeBandTask.motor->speed() == 0) {
-          activeBandTask.motor = nullptr;
-          activeBandTask.stopTime = 0;
-          busy = false;
-        }
+      // Timer-Modus (Entladen)
+      if (!activeBandTask.stopping && millis() >= activeBandTask.stopTime) {
+        activeBandTask.motor->stop();        // stop() NUR EINMAL
+        activeBandTask.stopping = true;
       }
+
+      if (activeBandTask.stopping && activeBandTask.motor->distanceToGo() == 0) {
+        activeBandTask.motor = nullptr;
+        activeBandTask.stopTime = 0;
+        activeBandTask.stopping = false;
+        busy = false;
+      }
+
     } else {
+      // Sensor-Modus (Beladen)
       static unsigned long lastMeasureMs = 0;
       const unsigned long MEASURE_INTERVAL_MS = 100;
-      if (millis() - lastMeasureMs >= MEASURE_INTERVAL_MS) {
+
+      if (!activeBandTask.stopping && (millis() - lastMeasureMs >= MEASURE_INTERVAL_MS)) {
         lastMeasureMs = millis();
         float dist = getDistance_cm();
         if (dist > 0 && dist <= DISTANCE_THRESHOLD_CM) {
-          requestSmoothStop(activeBandTask.motor);
+          activeBandTask.motor->stop();      // stop() NUR EINMAL
+          activeBandTask.stopping = true;
         }
       }
 
-      if (activeBandTask.motor->distanceToGo() == 0 && activeBandTask.motor->speed() == 0) {
+      if (activeBandTask.stopping && activeBandTask.motor->distanceToGo() == 0) {
         activeBandTask.motor = nullptr;
         activeBandTask.stopTime = 0;
+        activeBandTask.stopping = false;
         busy = false;
       }
     }
   }
 
+  // ==========================
+  // Pump Task
+  // ==========================
   if (activePump.motor != nullptr) {
     activePump.motor->run();
 
-    if (millis() >= activePump.stopTime) {
-      requestSmoothStop(activePump.motor);
-      if (activePump.motor->distanceToGo() == 0 && activePump.motor->speed() == 0) {
-        activePump.motor = nullptr;
-        activePump.stopTime = 0;
-        busy = false;
-      }
+    // Stop nur EINMAL auslösen (sonst kann er "nie fertig werden")
+    if (!activePump.stopping && millis() >= activePump.stopTime) {
+      activePump.motor->stop();
+      activePump.stopping = true;
+    }
+
+    // Wenn er fertig abgebremst hat -> Task beenden
+    if (activePump.stopping && activePump.motor->distanceToGo() == 0) {
+      activePump.motor = nullptr;
+      activePump.stopTime = 0;
+      activePump.stopping = false;
+      busy = false;
     }
   }
-  //bei neuer I2C Nachricht werden dementsprechende Funktionen abgerufen
+
+  // ==========================
+  // I2C Kommandos ausführen
+  // ==========================
   if (new_message) {
     noInterrupts();
     uint8_t cmd = aufgabe_i2c;
@@ -607,12 +670,12 @@ void loop() {
     interrupts();
 
     switch (cmd) {
-      case CMD_FAHR: fahren(par); break;
-      case CMD_HOME: (void)home(); break;
-      case CMD_STATUS: break;
-      case CMD_PUMPE: pumpe(); break;
-      case CMD_ENTLADEN: entladen(); break;
-      case CMD_BELADEN: beladen(); break;
+      case CMD_FAHR:     fahren(par);   break;
+      case CMD_HOME:     (void)home();  break;
+      case CMD_STATUS:   break;
+      case CMD_PUMPE:    pumpe();       break;
+      case CMD_ENTLADEN: entladen();    break;
+      case CMD_BELADEN:  beladen();     break;
       default: break;
     }
   }
