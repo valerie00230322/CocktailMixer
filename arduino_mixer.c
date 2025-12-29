@@ -20,15 +20,15 @@ const long CONTINUOUS_STEPS = 100000000L;
 //         Motor Parameter
 // ==============================
 float max_speed[12]  = {
-  60000.0f,   // PLF
+  60000.0f,  // PLF
   1000.0f,   // BAND
-  10000.0f, // P1
+  10000.0f,  // P1
   10000.0f,  // P2
-  10000.0f,   // P3
+  10000.0f,  // P3
   10000.0f,  // P4
   10000.0f,  // P5
   10000.0f,  // P6
-  10000.0f,   // P7
+  10000.0f,  // P7
   10000.0f,  // P8
   10000.0f,  // P9
   10000.0f   // P10
@@ -67,7 +67,7 @@ uint8_t ihold_vals[12] = {
 const int steps_u[12] = {
   4,  // PLF
   16, // BAND
-  4, // P1
+  4,  // P1
   4,  // P2
   4,  // P3
   4,  // P4
@@ -325,20 +325,8 @@ void requestSmoothStop(AccelStepper* m) {
   m->stop();
 }
 
-// HARD STOP fürs Homing (sofort keine Step-Pulse mehr)
-static inline void requestHardStop(AccelStepper& m) {
-  m.setSpeed(0);
-  m.moveTo(m.currentPosition()); // Ziel verwerfen
-}
-
-// Optional: sehr kurzes "stable" Lesen (gegen Prellen)
-static inline bool homePressedStable() {
-  if (PIN_READ(HOME)) return false; // HIGH = offen
-  delayMicroseconds(200);
-  return !PIN_READ(HOME);           // LOW = gedrückt
-}
-
 // ---- Bewegungs-API ----
+// ABSOLUT: Einheiten -> absolute Zielposition (Steps)
 void fahren(long units) {
   busy = true;
   PLF.moveTo(unitsToSteps((int)units));
@@ -394,31 +382,25 @@ void beladen() {
 
 // ==============================
 //         HOMING (HARD STOP)
-//   schnell -> backoff -> langsam
 // ==============================
 bool home() {
   busy = true;
 
-  const float HOME_SPEED = -4000.0f;      // ein Homing-Speed
-  const unsigned long TIMEOUT_MS = 20000; // Safety timeout
+  const float HOME_SPEED = -4000.0f;
+  const unsigned long TIMEOUT_MS = 20000;
 
-  // Alte Werte merken
   float oldMax = PLF.maxSpeed();
   float oldAcc = PLF.acceleration();
 
-  // Für runSpeed() ist Acceleration egal, aber wir lassen es sauber:
   PLF.setMaxSpeed(fabsf(HOME_SPEED));
-  PLF.setAcceleration(accel_sps2[0]); // oder z.B. 8000.0f, ist hier nicht kritisch
+  PLF.setAcceleration(accel_sps2[0]);
   PLF.setSpeed(HOME_SPEED);
 
   unsigned long t0 = millis();
 
-  // Fahren bis Endschalter betätigt (Pullup: HIGH = offen, LOW = gedrückt)
   while (PIN_READ(HOME)) {
     PLF.runSpeed();
-
     if (millis() - t0 > TIMEOUT_MS) {
-      // Restore
       PLF.setMaxSpeed(oldMax);
       PLF.setAcceleration(oldAcc);
       busy = false;
@@ -426,21 +408,18 @@ bool home() {
     }
   }
 
-  // SOFORT STOP (keine Rampe!)
+  // Sofort Stop
   PLF.setSpeed(0);
-  PLF.moveTo(PLF.currentPosition()); // Ziel verwerfen, damit später kein run() wieder losfährt
+  PLF.moveTo(PLF.currentPosition());
 
-  // Nullpunkt setzen
   PLF.setCurrentPosition(0);
 
-  // Restore
   PLF.setMaxSpeed(oldMax);
   PLF.setAcceleration(oldAcc);
 
   busy = false;
   return true;
 }
-
 
 void pumpe() {
   busy = true;
@@ -490,28 +469,40 @@ void onI2CReceive(int count) {
   aufgabe_i2c = cmd;
   last_cmd    = cmd;
 
-  if (cmd == CMD_FAHR && count >= 3) {
-    uint8_t low  = 0;
-    uint8_t high = 0;
+  // WICHTIG: FAHR vom Pi kommt bei dir als 2 Bytes:
+  // [CMD_FAHR, dist(int8)]
+  // Optional unterstützen wir weiterhin 3 Bytes:
+  // [CMD_FAHR, low, high] (int16 little-endian)
+  if (cmd == CMD_FAHR) {
+    if (count >= 3 && Wire.available() >= 2) {
+      uint8_t low  = Wire.read();
+      uint8_t high = Wire.read();
+      par_generic = (int16_t)((uint16_t)low | ((uint16_t)high << 8));
+      while (Wire.available()) (void)Wire.read();
+    } else if (count >= 2 && Wire.available() >= 1) {
+      uint8_t b = Wire.read();
+      par_generic = (int16_t)((int8_t)b);   // SIGN EXTEND int8 -> int16
+      while (Wire.available()) (void)Wire.read();
+    } else {
+      while (Wire.available()) (void)Wire.read();
+    }
 
-    if (Wire.available()) low  = Wire.read();
-    if (Wire.available()) high = Wire.read();
-    par_generic = (int16_t)((uint16_t)low | ((uint16_t)high << 8));
-    while (Wire.available()) (void)Wire.read();
+    new_message = true;
+    return;
   }
 
-  if ((cmd == CMD_ENTLADEN || cmd == CMD_BELADEN) && count > 1) {
+  if (cmd == CMD_PUMPE) {
+    if (count >= 3 && Wire.available() >= 2) {
+      pumpe_id_i2c = Wire.read();
+      zeit_sek_i2c = Wire.read();
+    }
     while (Wire.available()) (void)Wire.read();
+    new_message = true;
+    return;
   }
 
-  if (cmd == CMD_PUMPE && count >= 3) {
-    if (Wire.available()) pumpe_id_i2c = Wire.read();
-    if (Wire.available()) zeit_sek_i2c = Wire.read();
-    while (Wire.available()) (void)Wire.read();
-  } else {
-    while (Wire.available()) (void)Wire.read();
-  }
-
+  // BELADEN/ENTLADEN/HOME/STATUS haben keine Parameter
+  while (Wire.available()) (void)Wire.read();
   new_message = true;
 }
 
