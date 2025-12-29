@@ -4,6 +4,7 @@
 #include <AccelStepper.h>
 #include <Wire.h>
 #include <stdint.h>
+#include <math.h>
 
 // ==============================
 //         Konfiguration
@@ -19,15 +20,15 @@ const long CONTINUOUS_STEPS = 100000000L;
 //         Motor Parameter
 // ==============================
 float max_speed[12]  = {
-  6000.0f,   // PLF
+  60000.0f,   // PLF
   1000.0f,   // BAND
-  100000.0f, // P1
+  10000.0f, // P1
   10000.0f,  // P2
-  2500.0f,   // P3
+  10000.0f,   // P3
   10000.0f,  // P4
   10000.0f,  // P5
   10000.0f,  // P6
-  2500.0f,   // P7
+  10000.0f,   // P7
   10000.0f,  // P8
   10000.0f,  // P9
   10000.0f   // P10
@@ -66,7 +67,7 @@ uint8_t ihold_vals[12] = {
 const int steps_u[12] = {
   4,  // PLF
   16, // BAND
-  32, // P1
+  4, // P1
   4,  // P2
   4,  // P3
   4,  // P4
@@ -130,12 +131,7 @@ enum : uint8_t {
 
 // ============================================================
 // Motor STEP/DIR Arduino-Pinnummern
-// (für AccelStepper müssen es Arduino-Pins sein)
 // ============================================================
-// Achtung: Das Mapping gilt für Arduino Mega 2560 Core.
-// Wenn du KEIN Arduino-Core-Pinmapping nutzt, musst du
-// AccelStepper ggf. portbasiert anpassen.
-//
 // PLF: PB5 / PA0
 static const uint8_t STEP_PIN_PLF = 11;  // PB5
 static const uint8_t DIR_PIN_PLF  = 22;  // PA0
@@ -148,7 +144,6 @@ static const uint8_t DIR_PIN_BAND  = 23; // PA1
 static const uint8_t STEP_PIN_PUMPE1 = 13; // PB7
 static const uint8_t DIR_PIN_PUMPE1  = 24; // PA2
 
-// Fehlende Step-Pins über X4 (wie du wolltest):
 // P2 STEP = X4_1 (PE0 / Arduino Pin 0)
 static const uint8_t STEP_PIN_PUMPE2 = 0;  // X4_1 = PE0
 static const uint8_t DIR_PIN_PUMPE2  = 25; // PA3
@@ -330,6 +325,19 @@ void requestSmoothStop(AccelStepper* m) {
   m->stop();
 }
 
+// HARD STOP fürs Homing (sofort keine Step-Pulse mehr)
+static inline void requestHardStop(AccelStepper& m) {
+  m.setSpeed(0);
+  m.moveTo(m.currentPosition()); // Ziel verwerfen
+}
+
+// Optional: sehr kurzes "stable" Lesen (gegen Prellen)
+static inline bool homePressedStable() {
+  if (PIN_READ(HOME)) return false; // HIGH = offen
+  delayMicroseconds(200);
+  return !PIN_READ(HOME);           // LOW = gedrückt
+}
+
 // ---- Bewegungs-API ----
 void fahren(long units) {
   busy = true;
@@ -384,25 +392,33 @@ void beladen() {
   busy = true;
 }
 
+// ==============================
+//         HOMING (HARD STOP)
+//   schnell -> backoff -> langsam
+// ==============================
 bool home() {
   busy = true;
-  const float HOME_SPEED     = -400.0f;
-  const float HOME_ACCEL     =  8000.0f;
-  const long  BACKOFF_STEPS  = 800;
-  const unsigned long TIMEOUT_MS = 20000;
 
-  float oldMax  = PLF.maxSpeed();
-  float oldAcc  = PLF.acceleration();
-  float homeAbs = (HOME_SPEED < 0) ? -HOME_SPEED : HOME_SPEED;
+  const float HOME_SPEED = -4000.0f;      // ein Homing-Speed
+  const unsigned long TIMEOUT_MS = 20000; // Safety timeout
 
-  PLF.setAcceleration(HOME_ACCEL);
-  PLF.setMaxSpeed(homeAbs);
+  // Alte Werte merken
+  float oldMax = PLF.maxSpeed();
+  float oldAcc = PLF.acceleration();
+
+  // Für runSpeed() ist Acceleration egal, aber wir lassen es sauber:
+  PLF.setMaxSpeed(fabsf(HOME_SPEED));
+  PLF.setAcceleration(accel_sps2[0]); // oder z.B. 8000.0f, ist hier nicht kritisch
   PLF.setSpeed(HOME_SPEED);
 
   unsigned long t0 = millis();
-  while (PIN_READ(HOME)) { // Pullup -> HIGH = offen
+
+  // Fahren bis Endschalter betätigt (Pullup: HIGH = offen, LOW = gedrückt)
+  while (PIN_READ(HOME)) {
     PLF.runSpeed();
+
     if (millis() - t0 > TIMEOUT_MS) {
+      // Restore
       PLF.setMaxSpeed(oldMax);
       PLF.setAcceleration(oldAcc);
       busy = false;
@@ -410,18 +426,21 @@ bool home() {
     }
   }
 
-  PLF.stop();
-  while (PLF.isRunning()) PLF.run();
+  // SOFORT STOP (keine Rampe!)
+  PLF.setSpeed(0);
+  PLF.moveTo(PLF.currentPosition()); // Ziel verwerfen, damit später kein run() wieder losfährt
 
-  PLF.move(BACKOFF_STEPS);
-  while (PLF.distanceToGo() != 0) PLF.run();
-
+  // Nullpunkt setzen
   PLF.setCurrentPosition(0);
+
+  // Restore
   PLF.setMaxSpeed(oldMax);
   PLF.setAcceleration(oldAcc);
+
   busy = false;
   return true;
 }
+
 
 void pumpe() {
   busy = true;
