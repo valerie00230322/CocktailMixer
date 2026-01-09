@@ -9,7 +9,7 @@
 //         Konfiguration
 // ==============================
 // Master sendet PLF-Positionen in mm (int16)
-static const long STEPS_PER_MM = 2;              // <-- 2 steps pro mm
+static const long STEPS_PER_MM = 17;              // <-- 2 steps pro mm
 volatile bool busy = false;
 
 volatile bool homing_active = false;            // läuft gerade
@@ -24,40 +24,40 @@ const long CONTINUOUS_STEPS = 100000000L;       // "quasi endlos"
 // ==============================
 // steps/s
 float max_speed[12] = {
-  60000.0f,  // PLF
-  10000.0f,  // BAND
-  30000.0f,  // P1
-  30000.0f,  // P2
-  30000.0f,  // P3
-  30000.0f,  // P4
-  30000.0f,  // P5
-  30000.0f,  // P6
-  30000.0f,  // P7
-  30000.0f,  // P8
-  30000.0f,  // P9
-  30000.0f   // P10
+  2000.0f,  // PLF
+  2000.0f,  // BAND
+  2000.0f,  // P1
+  2000.0f,  // P2
+  2000.0f,  // P3
+  2000.0f,  // P4
+  2000.0f,  // P5
+  2000.0f,  // P6
+  2000.0f,  // P7
+  2000.0f,  // P8
+  2000.0f,  // P9
+  2000.0f   // P10
 };
 
 // steps/s^2
 float accel_sps2[12] = {
-  30000.0f,  // PLF
-  10000.0f,  // BAND
-  10000.0f,  // P1
-  10000.0f,  // P2
-  10000.0f,  // P3
-  10000.0f,  // P4
-  10000.0f,  // P5
-  10000.0f,  // P6
-  10000.0f,  // P7
-  10000.0f,  // P8
-  10000.0f,  // P9
-  10000.0f   // P10
+  500.0f,  // PLF
+  1000.0f,  // BAND
+  1000.0f,  // P1
+  1000.0f,  // P2
+  1000.0f,  // P3
+  1000.0f,  // P4
+  1000.0f,  // P5
+  1000.0f,  // P6
+  1000.0f,  // P7
+  1000.0f,  // P8
+  1000.0f,  // P9
+  1000.0f   // P10
 };
 
 // IHOLD 0..31
 uint8_t ihold_vals[12] = {
-  29,  // PLF
-  15,  // BAND
+  15,  // PLF
+  10,  // BAND
   1,   // P1
   1,   // P2
   1,   // P3
@@ -380,8 +380,8 @@ bool home() {
   homing_active = true;
   is_homed = false; // solange Homing läuft: nicht gehomed
 
-  const float HOME_SPEED = -4000.0f;
-  const unsigned long TIMEOUT_MS = 20000;
+  const float HOME_SPEED = -400.0f;
+  const unsigned long TIMEOUT_MS = 200000;
 
   float oldMax = PLF.maxSpeed();
   float oldAcc = PLF.acceleration();
